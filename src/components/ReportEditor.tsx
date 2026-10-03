@@ -40,12 +40,12 @@ export function ReportEditor({
     setD({ ...d, revisions: d.revisions.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
 
   const qLabels: [keyof typeof q, string][] = [
-    ["q1_horizontal_bundling", "1. الترابط الأفقي"],
-    ["q2_cross_domain_integration", "2. التكامل عبر المجالات"],
-    ["q3_sequential_logic", "3. التسلسل المنطقي"],
-    ["q4_observable_life_impact", "4. الأثر الملموس"],
-    ["q5_post_graduation_readiness", "5. الجاهزية لما بعد التخرج"],
-    ["q6_scattered_goals_detected", "6. كشف الأهداف المتفرقة"],
+    ["q1_horizontal_bundling", "ترابط مجالات وأهداف الخطة — ترابط الأهداف"],
+    ["q2_cross_domain_integration", "ترابط مجالات وأهداف الخطة — ترابط المجالات"],
+    ["q6_scattered_goals_detected", "ترابط مجالات وأهداف الخطة — الأهداف غير المترابطة"],
+    ["q3_sequential_logic", "التسلسل المنطقي للخطة"],
+    ["q4_observable_life_impact", "الأثر المتوقع في حياة المتعلم"],
+    ["q5_post_graduation_readiness", "الجاهزية لما بعد التخرج"],
   ];
   const cLabels: [keyof typeof c, string][] = [
     ["pillar_1_plaafp", "الركيزة 1: مستوى الأداء الحالي"],
@@ -84,15 +84,15 @@ export function ReportEditor({
           </div>
 
           <div className={section}>
-            <h3 className="font-semibold">الهندسة الكلية للخطة</h3>
+            <h3 className="font-semibold">الرؤية العامة</h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="درجة التكامل %"><input type="number" min={0} max={100} className={inputCls} value={m.integration_score_percent} onChange={(e) => setMacro({ integration_score_percent: Number(e.target.value) })} /></Field>
-              <Field label="الدور الوظيفي المستهدف"><input className={inputCls} value={m.target_functional_role} onChange={(e) => setMacro({ target_functional_role: e.target.value })} /></Field>
+              <Field label="مسار المهارات المهنية"><input className={inputCls} value={m.target_functional_role} onChange={(e) => setMacro({ target_functional_role: e.target.value })} /></Field>
             </div>
             {qLabels.map(([k, l]) => (
               <Field key={k} label={l}><Area value={q[k]} onChange={(v) => setQ(k, v)} /></Field>
             ))}
-            <Field label="التوصية الكلية"><Area rows={3} value={m.macro_recommendation} onChange={(v) => setMacro({ macro_recommendation: v })} /></Field>
+            <Field label="توصيات الرؤية العامة"><Area rows={3} value={m.macro_recommendation} onChange={(v) => setMacro({ macro_recommendation: v })} /></Field>
           </div>
 
           <div className={section}>
