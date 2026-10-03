@@ -22,6 +22,7 @@ import {
   type IepAuditReport,
 } from "@/lib/iep-schema";
 import { extractTextFromFile } from "@/lib/parse-document";
+import { exportDocx, exportJson as exportJsonFile, exportPdf } from "@/lib/export-report";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -180,18 +181,6 @@ function Index() {
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  function exportJson() {
-    if (!result) return;
-    const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const student = result.report.micro_audit_summary.student_name || "iep";
-    a.href = url;
-    a.download = `iep-audit-${student.replace(/\s+/g, "_")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
   const filteredRevisions = useMemo(() => {
     if (!result) return [];
     return result.report.revisions.filter(
@@ -222,20 +211,29 @@ function Index() {
             </div>
           </div>
           {result && (
-            <button
-              onClick={exportJson}
-              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
-            >
-              <Download className="h-4 w-4" />
-              تصدير التقرير
-            </button>
+            <div className="flex shrink-0 flex-wrap gap-2 print:hidden">
+              {[
+                { label: "PDF", fn: () => exportPdf() },
+                { label: "DOCX", fn: () => void exportDocx(result.report) },
+                { label: "JSON", fn: () => exportJsonFile(result, result.report) },
+              ].map((b) => (
+                <button
+                  key={b.label}
+                  onClick={b.fn}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-input bg-background px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
+                >
+                  <Download className="h-4 w-4" />
+                  {b.label}
+                </button>
+              ))}
+            </div>
           )}
         </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         {/* Upload */}
-        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-7">
+        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-7 print:hidden">
           <h2 className="flex items-center gap-2 text-base font-semibold">
             <FileUp className="h-5 w-5 text-primary" />
             ارفع الخطة التربوية الفردية
@@ -399,17 +397,23 @@ function AuditReportView({
 }) {
   const { report, parity } = result;
   const { macro_plan_engineering: macro, micro_audit_summary: summary, checklist_24_standards_status: checklist } = report;
+  const [tab, setTab] = useState<"revisions" | "mapping" | "categories">("revisions");
+  const tones = PILLARS.map((p) => statusTone(checklist[p.key]));
+  const complianceRate = Math.round(
+    (tones.reduce((n, t) => n + (t === "pass" ? 1 : t === "partial" ? 0.5 : 0), 0) / tones.length) * 100,
+  );
 
   return (
     <div id="results" className="mt-8 space-y-8">
       {/* Summary strip */}
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         {[
           { label: "الطالب", value: summary.student_name || "غير محدد" },
           { label: "العمر", value: summary.age != null ? `${summary.age} سنة` : "غير محدد" },
           { label: "نوع الإعاقة", value: summary.disability_type || "غير محدد" },
           { label: "الأهداف المراجَعة", value: String(summary.total_goals_reviewed) },
-          { label: "درجة المعايير الـ 24", value: `${summary.quality_score_24_standards}%` },
+          { label: "درجة الجودة الكلية", value: `${summary.quality_score_24_standards} / 100` },
+          { label: "نسبة الامتثال للمعايير الـ 24", value: `${complianceRate}%` },
           { label: "تغطية الاحتياجات", value: summary.plaafp_coverage_complete ? "مكتملة" : "غير مكتملة" },
         ].map((item) => (
           <div key={item.label} className="rounded-xl border border-border bg-card p-3 text-center shadow-sm">
@@ -461,10 +465,29 @@ function AuditReportView({
         </div>
       </section>
 
+      {/* Tabs */}
+      <div className="flex flex-wrap gap-2 print:hidden" role="tablist">
+        {[
+          { id: "revisions", label: "جدول تتبع التعديلات" },
+          { id: "mapping", label: "مصفوفة تغطية الاحتياجات" },
+          { id: "categories", label: "تصنيف التعديلات الثلاثي" },
+        ].map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id as typeof tab)}
+            className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${tab === t.id ? "bg-primary text-primary-foreground" : "border border-input bg-card hover:bg-accent"}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className={tab === "revisions" ? "" : "hidden print:block"}>
       {/* Section 2: Micro audit table */}
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-accent/40 px-5 py-3">
-          <h2 className="font-semibold">قسم 2 — جدول تتبع التعديلات المفصل ({report.revisions.length} هدفاً)</h2>
+          <h2 className="font-semibold">جدول تتبع التعديلات ({report.revisions.length} هدفاً)</h2>
           <div className="flex flex-wrap gap-2">
             <select
               value={domainFilter}
@@ -549,11 +572,13 @@ function AuditReportView({
         )}
       </section>
 
+      </div>
+      <div className={tab === "mapping" ? "" : "hidden print:block"}>
       {/* Section 3: Need-to-goal mapping */}
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="flex items-center gap-2 border-b border-border bg-accent/40 px-5 py-3">
           <ShieldCheck className="h-5 w-5 text-primary" />
-          <h2 className="font-semibold">قسم 3 — مصفوفة تغطية الاحتياجات (PLAAFP ← أهداف)</h2>
+          <h2 className="font-semibold">مصفوفة تغطية الاحتياجات (PLAAFP ← أهداف)</h2>
         </div>
         <div className="p-5">
           <div className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${summary.plaafp_coverage_complete ? "border-chart-2/40 bg-chart-2/10" : "border-destructive/30 bg-destructive/10"}`}>
@@ -564,7 +589,29 @@ function AuditReportView({
                 : "توجد احتياجات غير مغطاة بأهداف — يجب توليد أهداف لها وفق قاعدة التغطية الكاملة."}
             </p>
           </div>
-          {summary.unmapped_needs.length > 0 && (
+          {report.need_goal_mapping.length > 0 && (
+            <ul className="mt-3 space-y-2">
+              {report.need_goal_mapping.map((n, i) => (
+                <li
+                  key={i}
+                  className={`grid gap-2 rounded-lg border px-4 py-2.5 text-sm md:grid-cols-[1fr_auto_1fr] md:items-center ${n.covering_goal ? "border-chart-2/40 bg-chart-2/5" : "border-destructive/40 bg-destructive/10 text-destructive"}`}
+                >
+                  <span className="flex items-start gap-2">
+                    <StatusIcon tone={n.covering_goal ? "pass" : "fail"} />
+                    <span>
+                      <span className="block text-[11px] opacity-70">{n.domain}</span>
+                      {n.need}
+                    </span>
+                  </span>
+                  <span className="hidden text-muted-foreground md:block">←</span>
+                  <span className={n.covering_goal ? "text-muted-foreground" : "font-semibold"}>
+                    {n.covering_goal ?? "لا يوجد هدف مغطٍّ"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {report.need_goal_mapping.length === 0 && summary.unmapped_needs.length > 0 && (
             <ul className="mt-3 space-y-2">
               {summary.unmapped_needs.map((need, i) => (
                 <li key={i} className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-2.5 text-sm">
@@ -576,6 +623,34 @@ function AuditReportView({
           )}
         </div>
       </section>
+
+      </div>
+      <div className={tab === "categories" ? "space-y-4" : "hidden print:block print:space-y-4"}>
+        {REVISION_CATEGORIES.map((cat) => {
+          const items = report.revisions.filter((r) => r.revision_category === cat);
+          return (
+            <section key={cat} className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+              <div className="flex items-center justify-between border-b border-border bg-accent/40 px-5 py-3">
+                <h2 className="font-semibold">{cat}</h2>
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${items.length >= 3 ? "bg-chart-2/15 text-chart-2" : "bg-destructive/10 text-destructive"}`}>
+                  {items.length} أمثلة {items.length < 3 && "— أقل من الحد الأدنى (3)"}
+                </span>
+              </div>
+              <ul className="divide-y divide-border">
+                {items.map((r, i) => (
+                  <li key={i} className="space-y-1.5 px-5 py-3 text-sm">
+                    <p className="text-[11px] text-muted-foreground">{r.domain}</p>
+                    <p className="text-muted-foreground line-through decoration-destructive/40">{r.original_goal}</p>
+                    <p className="font-medium">{r.revised_goal}</p>
+                    <p className="text-xs text-muted-foreground">{r.rationale}</p>
+                  </li>
+                ))}
+                {items.length === 0 && <li className="px-5 py-4 text-sm text-muted-foreground">لا توجد أمثلة.</li>}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
 
       {/* Section 4: 24 standards checklist */}
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
@@ -599,6 +674,20 @@ function AuditReportView({
           })}
         </ul>
       </section>
+
+      {report.recommendations.length > 0 && (
+        <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+          <div className="flex items-center gap-2 border-b border-border bg-accent/40 px-5 py-3">
+            <Sparkles className="h-5 w-5 text-primary" />
+            <h2 className="font-semibold">التوصيات</h2>
+          </div>
+          <ol className="list-decimal space-y-2 px-10 py-4 text-sm leading-relaxed">
+            {report.recommendations.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ol>
+        </section>
+      )}
     </div>
   );
 }

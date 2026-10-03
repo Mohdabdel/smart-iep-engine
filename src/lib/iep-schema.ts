@@ -33,8 +33,24 @@ export const auditReportJsonSchema: import("json-schema").JSONSchema7 = {
     "micro_audit_summary",
     "revisions",
     "checklist_24_standards_status",
+    "need_goal_mapping",
+    "recommendations",
   ],
   properties: {
+    need_goal_mapping: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["need", "domain", "covering_goal"],
+        properties: {
+          need: { type: "string" },
+          domain: { enum: [...IEP_DOMAINS] },
+          covering_goal: { type: ["string", "null"] },
+        },
+      },
+    },
+    recommendations: { type: "array", items: { type: "string" } },
     macro_plan_engineering: {
       type: "object",
       additionalProperties: false,
@@ -175,6 +191,8 @@ export type IepAuditReport = {
     pillar_4_transition: string;
     items_13_7_to_13_11_plan_engineering: string;
   };
+  need_goal_mapping: { need: string; domain: (typeof IEP_DOMAINS)[number]; covering_goal: string | null }[];
+  recommendations: string[];
 };
 
 /** تحقق نهائي صارم من بنية التقرير بعد الاستلام */
@@ -218,4 +236,8 @@ export const auditReportZodSchema = z.object({
     pillar_4_transition: z.string(),
     items_13_7_to_13_11_plan_engineering: z.string(),
   }),
+  need_goal_mapping: z.array(
+    z.object({ need: z.string(), domain: z.enum(IEP_DOMAINS), covering_goal: z.string().nullable() }),
+  ),
+  recommendations: z.array(z.string()),
 });
