@@ -123,7 +123,34 @@ function Index() {
     setPhase("auditing");
     setError(null);
     try {
-      const res = await auditIep({ data: { documentName: fileInfo.name, documentText: docText } });
+      const resp = await fetch("/api/audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentName: fileInfo.name, documentText: docText }),
+      });
+      if (!resp.ok || !resp.body) {
+        const j = await resp.json().catch(() => null);
+        throw new Error(j?.error ?? `فشل التدقيق (${resp.status})`);
+      }
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let res: Awaited<ReturnType<typeof auditIep>> | null = null;
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, i).trim();
+          buf = buf.slice(i + 1);
+          if (!line) continue;
+          const msg = JSON.parse(line);
+          if (msg.type === "error") throw new Error(msg.message);
+          if (msg.type === "result") res = msg.data;
+        }
+      }
+      if (!res) throw new Error("انقطع الاتصال قبل اكتمال التدقيق. أعد المحاولة.");
       setResult(res);
       setPhase("done");
       requestAnimationFrame(() =>
