@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  CheckSquare2,
   CircleDashed,
   Download,
   FileText,
@@ -22,7 +23,15 @@ import {
   type IepAuditReport,
 } from "@/lib/iep-schema";
 import { extractTextFromFile } from "@/lib/parse-document";
-import { exportDocx, exportJson as exportJsonFile, exportPdf } from "@/lib/export-report";
+import {
+  DEFAULT_REPORT_SECTIONS,
+  REPORT_SECTION_OPTIONS,
+  exportDocx,
+  exportJson as exportJsonFile,
+  exportPdf,
+  type ReportSectionId,
+  type ReportSections,
+} from "@/lib/export-report";
 import { ReportEditor } from "@/components/ReportEditor";
 import { Pencil } from "lucide-react";
 
@@ -60,15 +69,6 @@ type AuditResult = {
 
 type Phase = "idle" | "extracting" | "auditing" | "done";
 
-const MACRO_QUESTIONS: { key: keyof IepAuditReport["macro_plan_engineering"]["horizontal_analysis_6_questions"]; label: string }[] = [
-  { key: "q1_horizontal_bundling", label: "الترابط الأفقي" },
-  { key: "q2_cross_domain_integration", label: "التكامل عبر المجالات" },
-  { key: "q3_sequential_logic", label: "التسلسل المنطقي" },
-  { key: "q4_observable_life_impact", label: "الأثر الملموس في الحياة" },
-  { key: "q5_post_graduation_readiness", label: "الجاهزية لما بعد التخرج" },
-  { key: "q6_scattered_goals_detected", label: "كشف الأهداف المتفرقة" },
-];
-
 const PILLARS: { key: keyof IepAuditReport["checklist_24_standards_status"]; label: string }[] = [
   { key: "pillar_1_plaafp", label: "الركيزة 1 — مستوى الأداء الحالي (PLAAFP)" },
   { key: "pillar_2_smart_goals", label: "الركيزة 2 — الأهداف الذكية SMART" },
@@ -93,6 +93,8 @@ function Index() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [dragOver, setDragOver] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [selectingSections, setSelectingSections] = useState(false);
+  const [reportSections, setReportSections] = useState<ReportSections>(() => ({ ...DEFAULT_REPORT_SECTIONS }));
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleFile(file: File) {
@@ -181,6 +183,8 @@ function Index() {
     setResult(null);
     setDomainFilter("all");
     setCategoryFilter("all");
+    setSelectingSections(false);
+    setReportSections({ ...DEFAULT_REPORT_SECTIONS });
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -222,10 +226,18 @@ function Index() {
                 <Pencil className="h-4 w-4" />
                 تعديل التقرير
               </button>
+              <button
+                onClick={() => setSelectingSections((current) => !current)}
+                aria-pressed={selectingSections}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${selectingSections ? "border-primary bg-primary/10 text-primary" : "border-input bg-background hover:bg-accent"}`}
+              >
+                <CheckSquare2 className="h-4 w-4" />
+                تحديد مكونات التقرير
+              </button>
               {[
                 { label: "PDF", fn: () => exportPdf() },
-                { label: "DOCX", fn: () => void exportDocx(result.report) },
-                { label: "JSON", fn: () => exportJsonFile(result, result.report) },
+                { label: "DOCX", fn: () => void exportDocx(result.report, reportSections) },
+                { label: "JSON", fn: () => exportJsonFile(result, result.report, reportSections) },
               ].map((b) => (
                 <button
                   key={b.label}
@@ -345,7 +357,31 @@ function Index() {
           )}
         </section>
 
-        {result && <AuditReportView result={result} filteredRevisions={filteredRevisions} domainFilter={domainFilter} categoryFilter={categoryFilter} setDomainFilter={setDomainFilter} setCategoryFilter={setCategoryFilter} />}
+        {result && selectingSections && (
+          <section className="mt-6 rounded-xl border border-primary/30 bg-card p-4 print:hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="font-semibold">مكونات التقرير</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">انقر على أي إطار في التقرير أو استخدم الخيارات التالية لتضمينه أو استبعاده.</p>
+              </div>
+              <button onClick={() => setSelectingSections(false)} className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">تم الاختيار</button>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {REPORT_SECTION_OPTIONS.map((section) => (
+                <label key={section.id} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${reportSections[section.id] ? "border-primary bg-primary/10" : "border-border bg-background text-muted-foreground"}`}>
+                  <input
+                    type="checkbox"
+                    checked={reportSections[section.id]}
+                    onChange={() => setReportSections((current) => ({ ...current, [section.id]: !current[section.id] }))}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  {section.label}
+                </label>
+              ))}
+            </div>
+          </section>
+        )}
+        {result && <AuditReportView result={result} filteredRevisions={filteredRevisions} domainFilter={domainFilter} categoryFilter={categoryFilter} setDomainFilter={setDomainFilter} setCategoryFilter={setCategoryFilter} reportSections={reportSections} selectingSections={selectingSections} onToggleSection={(id) => setReportSections((current) => ({ ...current, [id]: !current[id] }))} />}
         {result && editing && (
           <ReportEditor
             report={result.report}
@@ -407,6 +443,9 @@ function AuditReportView({
   categoryFilter,
   setDomainFilter,
   setCategoryFilter,
+  reportSections,
+  selectingSections,
+  onToggleSection,
 }: {
   result: AuditResult;
   filteredRevisions: AuditResult["report"]["revisions"];
@@ -414,6 +453,9 @@ function AuditReportView({
   categoryFilter: string;
   setDomainFilter: (v: string) => void;
   setCategoryFilter: (v: string) => void;
+  reportSections: ReportSections;
+  selectingSections: boolean;
+  onToggleSection: (id: ReportSectionId) => void;
 }) {
   const { report, parity } = result;
   const { macro_plan_engineering: macro, micro_audit_summary: summary, checklist_24_standards_status: checklist } = report;
@@ -422,11 +464,36 @@ function AuditReportView({
   const complianceRate = Math.round(
     (tones.reduce((n, t) => n + (t === "pass" ? 1 : t === "partial" ? 0.5 : 0), 0) / tones.length) * 100,
   );
+  const q = macro.horizontal_analysis_6_questions;
+  const overviewItems = [
+    {
+      label: "ترابط مجالات وأهداف الخطة",
+      text: `${q.q1_horizontal_bundling}\n${q.q2_cross_domain_integration}\n${q.q6_scattered_goals_detected}`,
+    },
+    { label: "التسلسل المنطقي للخطة", text: q.q3_sequential_logic },
+    { label: "الأثر المتوقع في حياة المتعلم", text: q.q4_observable_life_impact },
+    { label: "الجاهزية لما بعد التخرج", text: q.q5_post_graduation_readiness },
+  ];
+  const uncoveredNeeds = report.need_goal_mapping.filter((item) => !item.covering_goal);
+  const sectionClass = (id: ReportSectionId) =>
+    `${reportSections[id] ? "" : "print:hidden"} ${selectingSections ? `cursor-pointer transition-all ${reportSections[id] ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : "opacity-45 ring-2 ring-border"}` : ""}`;
+  const sectionProps = (id: ReportSectionId) => ({
+    onClick: selectingSections ? () => onToggleSection(id) : undefined,
+    onKeyDown: selectingSections ? (event: React.KeyboardEvent<HTMLElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onToggleSection(id);
+      }
+    } : undefined,
+    role: selectingSections ? "checkbox" : undefined,
+    "aria-checked": selectingSections ? reportSections[id] : undefined,
+    tabIndex: selectingSections ? 0 : undefined,
+  });
 
   return (
     <div id="results" className="mt-8 space-y-8">
       {/* Summary strip */}
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+      <section {...sectionProps("summary")} className={`grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7 ${sectionClass("summary")}`}>
         {[
           { label: "الطالب", value: summary.student_name || "غير محدد" },
           { label: "العمر", value: summary.age != null ? `${summary.age} سنة` : "غير محدد" },
@@ -446,39 +513,39 @@ function AuditReportView({
       </section>
 
       {/* Section 1: Macro */}
-      <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      <section {...sectionProps("overview")} className={`overflow-hidden rounded-2xl border border-border bg-card shadow-sm ${sectionClass("overview")}`}>
         <div className="flex items-center gap-2 border-b border-border bg-accent/40 px-5 py-3">
           <Target className="h-5 w-5 text-primary" />
-          <h2 className="font-semibold">قسم 1 — لوحة الهندسة الكلية للخطة (التكامل الأفقي)</h2>
+          <h2 className="font-semibold">قسم 1 — الرؤية العامة</h2>
         </div>
         <div className="p-5">
           <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center">
             <ScoreRing score={macro.integration_score_percent} />
             <div className="flex-1 space-y-3">
               <div className="rounded-lg border border-border bg-background px-4 py-3">
-                <p className="text-xs text-muted-foreground">الدور الوظيفي المستهدف في الحياة</p>
+                <p className="text-xs text-muted-foreground">مسار المهارات المهنية</p>
                 <p className="mt-1 font-semibold">{macro.target_functional_role || "لم يُحدد"}</p>
               </div>
               <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
-                <p className="text-xs text-primary">التوصية التنفيذية لإعادة هيكلة الخطة</p>
+                <p className="text-xs text-primary">توصيات الرؤية العامة</p>
                 <p className="mt-1 text-sm leading-relaxed">{macro.macro_recommendation}</p>
               </div>
             </div>
           </div>
 
           <h3 className="mt-6 mb-3 text-sm font-semibold text-muted-foreground">
-            مصفوفة المراجعة الأفقية — الأسئلة الجوهرية الستة
+            محاور الرؤية العامة
           </h3>
           <div className="grid gap-3 md:grid-cols-2">
-            {MACRO_QUESTIONS.map((q, i) => (
-              <div key={q.key} className="rounded-lg border border-border bg-background p-4">
+            {overviewItems.map((item, i) => (
+              <div key={item.label} className="rounded-lg border border-border bg-background p-4">
                 <p className="text-sm font-semibold">
                   <span className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
                     {i + 1}
                   </span>
-                  {q.label}
+                  {item.label}
                 </p>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{macro.horizontal_analysis_6_questions[q.key]}</p>
+                <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">{item.text}</p>
               </div>
             ))}
           </div>
@@ -503,7 +570,7 @@ function AuditReportView({
           </button>
         ))}
       </div>
-      <div className={tab === "revisions" ? "" : "hidden print:block"}>
+      <div {...sectionProps("revisions")} className={`${tab === "revisions" ? "" : "hidden print:block"} ${sectionClass("revisions")}`}>
       {/* Section 2: Micro audit table */}
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-accent/40 px-5 py-3">
@@ -593,12 +660,12 @@ function AuditReportView({
       </section>
 
       </div>
-      <div className={tab === "mapping" ? "" : "hidden print:block"}>
+      <div {...sectionProps("mapping")} className={`${tab === "mapping" ? "" : "hidden print:block"} ${sectionClass("mapping")}`}>
       {/* Section 3: Need-to-goal mapping */}
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="flex items-center gap-2 border-b border-border bg-accent/40 px-5 py-3">
           <ShieldCheck className="h-5 w-5 text-primary" />
-          <h2 className="font-semibold">مصفوفة تغطية الاحتياجات (PLAAFP ← أهداف)</h2>
+          <h2 className="font-semibold">الاحتياجات غير المغطاة ضمن مستوى الأداء الحالي</h2>
         </div>
         <div className="p-5">
           <div className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${summary.plaafp_coverage_complete ? "border-chart-2/40 bg-chart-2/10" : "border-destructive/30 bg-destructive/10"}`}>
@@ -609,29 +676,23 @@ function AuditReportView({
                 : "توجد احتياجات غير مغطاة بأهداف — يجب توليد أهداف لها وفق قاعدة التغطية الكاملة."}
             </p>
           </div>
-          {report.need_goal_mapping.length > 0 && (
+          {uncoveredNeeds.length > 0 && (
             <ul className="mt-3 space-y-2">
-              {report.need_goal_mapping.map((n, i) => (
+              {uncoveredNeeds.map((n, i) => (
                 <li
                   key={i}
-                  className={`grid gap-2 rounded-lg border px-4 py-2.5 text-sm md:grid-cols-[1fr_auto_1fr] md:items-center ${n.covering_goal ? "border-chart-2/40 bg-chart-2/5" : "border-destructive/40 bg-destructive/10 text-destructive"}`}
+                  className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive"
                 >
-                  <span className="flex items-start gap-2">
-                    <StatusIcon tone={n.covering_goal ? "pass" : "fail"} />
-                    <span>
-                      <span className="block text-[11px] opacity-70">{n.domain}</span>
-                      {n.need}
-                    </span>
-                  </span>
-                  <span className="hidden text-muted-foreground md:block">←</span>
-                  <span className={n.covering_goal ? "text-muted-foreground" : "font-semibold"}>
-                    {n.covering_goal ?? "لا يوجد هدف مغطٍّ"}
+                  <StatusIcon tone="fail" />
+                  <span>
+                    <span className="block text-[11px] opacity-70">{n.domain}</span>
+                    {n.need}
                   </span>
                 </li>
               ))}
             </ul>
           )}
-          {report.need_goal_mapping.length === 0 && summary.unmapped_needs.length > 0 && (
+          {uncoveredNeeds.length === 0 && summary.unmapped_needs.length > 0 && (
             <ul className="mt-3 space-y-2">
               {summary.unmapped_needs.map((need, i) => (
                 <li key={i} className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-2.5 text-sm">
@@ -645,7 +706,7 @@ function AuditReportView({
       </section>
 
       </div>
-      <div className={tab === "categories" ? "space-y-4" : "hidden print:block print:space-y-4"}>
+      <div {...sectionProps("categories")} className={`${tab === "categories" ? "space-y-4" : "hidden print:block print:space-y-4"} ${sectionClass("categories")}`}>
         {REVISION_CATEGORIES.map((cat) => {
           const items = report.revisions.filter((r) => r.revision_category === cat);
           return (
@@ -673,7 +734,7 @@ function AuditReportView({
       </div>
 
       {/* Section 4: 24 standards checklist */}
-      <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      <section {...sectionProps("standards")} className={`overflow-hidden rounded-2xl border border-border bg-card shadow-sm ${sectionClass("standards")}`}>
         <div className="flex items-center gap-2 border-b border-border bg-accent/40 px-5 py-3">
           <CheckCircle2 className="h-5 w-5 text-primary" />
           <h2 className="font-semibold">قسم 4 — قائمة معايير الجودة الـ 24 (الركائز 1-4 + البنود 13-7 إلى 13-11)</h2>
@@ -696,7 +757,7 @@ function AuditReportView({
       </section>
 
       {report.recommendations.length > 0 && (
-        <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <section {...sectionProps("recommendations")} className={`overflow-hidden rounded-2xl border border-border bg-card shadow-sm ${sectionClass("recommendations")}`}>
           <div className="flex items-center gap-2 border-b border-border bg-accent/40 px-5 py-3">
             <Sparkles className="h-5 w-5 text-primary" />
             <h2 className="font-semibold">التوصيات</h2>

@@ -145,3 +145,9 @@
     -webkit-font-smoothing: antialiased;
   }
 }
+
+@media print {
+  [class~="print:hidden"] {
+    display: none !important;
+  }
+}
