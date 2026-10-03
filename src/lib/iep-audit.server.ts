@@ -92,10 +92,13 @@ export function applyUnifiedRuleParity(report: IepAuditReport) {
     // توحيد معيار القياس: منع دمج النسبة المئوية مع عدد المحاولات/الجلسات
     if (/\d+\s*٪|%/.test(out)) {
       const single = out.replace(
-        /\s*(?:في|خلال)\s+\d+\s+(?:محاولات?|جلسات?)(?:\s+متتالية)?(?:\s+من\s+أصل\s+\d+(?:\s+(?:محاولات?|جلسات?))?)?/g,
-        "",
+        /(\d+\s*(?:٪|%)[^،.؛]{0,40}?)\s*(?:و)?\s*(?:في|خلال)\s+\d+\s+(?:محاولات?|جلسات?|فرص?)(?:\s+متتالية)?(?:\s+من\s+(?:أصل)?\s*\d+(?:\s+(?:محاولات?|جلسات?|فرص?))?)?/g,
+        "$1",
       );
-      if (single !== out) criterionFixes += 1;
+      if (single !== out) {
+        criterionFixes += 1;
+        console.log("[parity] criterion fix:\n  before:", out, "\n  after:", single);
+      }
       out = single;
     }
     return out.replace(/\s{2,}/g, " ").trim();
