@@ -23,6 +23,8 @@ import {
 } from "@/lib/iep-schema";
 import { extractTextFromFile } from "@/lib/parse-document";
 import { exportDocx, exportJson as exportJsonFile, exportPdf } from "@/lib/export-report";
+import { ReportEditor } from "@/components/ReportEditor";
+import { Pencil } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -90,6 +92,7 @@ function Index() {
   const [domainFilter, setDomainFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [dragOver, setDragOver] = useState(false);
+  const [editing, setEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleFile(file: File) {
@@ -212,6 +215,13 @@ function Index() {
           </div>
           {result && (
             <div className="flex shrink-0 flex-wrap gap-2 print:hidden">
+              <button
+                onClick={() => setEditing(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+              >
+                <Pencil className="h-4 w-4" />
+                تعديل التقرير
+              </button>
               {[
                 { label: "PDF", fn: () => exportPdf() },
                 { label: "DOCX", fn: () => void exportDocx(result.report) },
@@ -336,6 +346,16 @@ function Index() {
         </section>
 
         {result && <AuditReportView result={result} filteredRevisions={filteredRevisions} domainFilter={domainFilter} categoryFilter={categoryFilter} setDomainFilter={setDomainFilter} setCategoryFilter={setCategoryFilter} />}
+        {result && editing && (
+          <ReportEditor
+            report={result.report}
+            onClose={() => setEditing(false)}
+            onSave={(r) => {
+              setResult({ ...result, report: r });
+              setEditing(false);
+            }}
+          />
+        )}
       </main>
 
       <footer className="border-t border-border py-6 text-center text-xs text-muted-foreground">
