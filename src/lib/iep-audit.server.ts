@@ -21,7 +21,8 @@ import {
   TRANSITION_CONCEPTS,
   buildScopedJsonSchema,
   keysForReviewType,
-  toReport,
+  modelOutputZ,
+  type ModelKey,
   type ModelOutput,
 } from "./iep-schema";
 
@@ -95,7 +96,7 @@ plaafp_review / smart_review: تعليق نوعي موجز على مستوى ا�
 
 export type SupportingDoc = { source: string; name: string; text: string };
 
-export function buildUserPrompt(config: ReviewConfig, docs: SupportingDoc[]) {
+export function buildUserPrompt(config: ReviewConfig, docs: SupportingDoc[], keys: ModelKey[] = keysForReviewType(config.review_type)) {
   const reviewType = REVIEW_TYPES.find((t) => t.id === config.review_type)?.label ?? "مراجعة كاملة";
   const pillars = new Set(pillarsForReviewType(config.review_type));
   const active = activeCriteria(config);
@@ -122,12 +123,12 @@ ${active.length ? active.map((c) => `- ${c.id} ${c.label}`).join("\n") : "- لا
 معايير خارج نطاق المراجعة (لا تُقيَّم ولا تؤثر في الحكم):
 ${excluded.length ? excluded.map((t) => `- ${t}`).join("\n") : "- لا يوجد"}
 
-أخرج فقط المفاتيح المطلوبة في المخطط: ${keysForReviewType(config.review_type).join(", ")}
+هذه المهمة جزء من مراجعة مقسّمة إلى أجزاء متوازية. أخرج فقط المفاتيح المطلوبة في المخطط: ${keys.join(", ")}
 
 ${docsText}`;
 }
 
-export async function runIepAudit(config: ReviewConfig, docs: SupportingDoc[]) {
+export async function runIepAudit(config: ReviewConfig, docs: SupportingDoc[], keys: ModelKey[]): Promise<Partial<ModelOutput>> {
   const apiKey = process.env["LOVABLE_API_KEY"];
   if (!apiKey) throw new Error("لم يتم تهيئة مفتاح محرك الذكاء الاصطناعي على الخادم.");
 
@@ -142,8 +143,8 @@ export async function runIepAudit(config: ReviewConfig, docs: SupportingDoc[]) {
   const result = streamText({
     model: provider.responses(MODEL),
     system: IEP_SYSTEM_PROMPT,
-    prompt: buildUserPrompt(config, docs),
-    output: Output.object({ schema: jsonSchema<Partial<ModelOutput>>(buildScopedJsonSchema(config.review_type)) }),
+    prompt: buildUserPrompt(config, docs, keys),
+    output: Output.object({ schema: jsonSchema<Partial<ModelOutput>>(buildScopedJsonSchema(config.review_type, keys)) }),
     providerOptions: {
       openai: {
         store: false,
@@ -158,5 +159,6 @@ export async function runIepAudit(config: ReviewConfig, docs: SupportingDoc[]) {
 
   const parsed = await result.output;
   if (!parsed) throw new Error("لم يُنتج المحرك مخرجات. أعد المحاولة.");
-  return toReport(parsed, config);
+  const mask = Object.fromEntries(keys.map((k) => [k, true])) as { [K in ModelKey]?: true };
+  return modelOutputZ.pick(mask).parse(parsed) as Partial<ModelOutput>;
 }

@@ -8,6 +8,7 @@ const inputSchema = z.object({
     sources: z.record(z.string(), sourceState),
     criteria: z.record(z.string(), z.object({ state: z.enum(["active", "frozen", "na"]), reason: z.string().optional() })),
   }),
+  keys: z.array(z.string()).min(1),
   documents: z
     .array(z.object({ source: z.string(), name: z.string().min(1), text: z.string() }))
     .min(1)
@@ -24,7 +25,6 @@ export const Route = createFileRoute("/api/audit")({
           return Response.json({ error: "نص المستند قصير جداً أو فشل استخراجه، أو إعدادات المراجعة غير صالحة." }, { status: 400 });
         }
         const { runIepAudit } = await import("@/lib/iep-audit.server");
-        const { applyReviewerParity } = await import("@/lib/iep-parity");
         const enc = new TextEncoder();
         let closed = false;
         let ping: ReturnType<typeof setInterval> | undefined;
@@ -45,9 +45,12 @@ export const Route = createFileRoute("/api/audit")({
             ping = setInterval(() => send({ type: "ping" }), 5000);
             try {
               const config = parsedInput.data.config as import("@/lib/criteria-registry").ReviewConfig;
-              const report = await runIepAudit(config, parsedInput.data.documents);
-              const parity = applyReviewerParity(report, config);
-              send({ type: "result", data: { report: parity.report, parity: parity.stats } });
+              const { keysForReviewType } = await import("@/lib/iep-schema");
+              const allowed = new Set<string>(keysForReviewType(config.review_type));
+              const keys = parsedInput.data.keys.filter((k) => allowed.has(k)) as import("@/lib/iep-schema").ModelKey[];
+              if (!keys.length) throw new Error("أجزاء المراجعة المطلوبة غير صالحة.");
+              const partial = await runIepAudit(config, parsedInput.data.documents, keys);
+              send({ type: "result", data: { partial } });
             } catch (e) {
               console.error("[audit]", e);
               send({ type: "error", message: e instanceof Error ? e.message : "فشل التدقيق." });
