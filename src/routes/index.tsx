@@ -20,7 +20,7 @@ import {
 import { extractTextFromFile } from "@/lib/parse-document";
 
 type ParsedDocument = { name: string; text: string };
-import { PILLAR_MAX_SCORES, REVISION_CATEGORIES, type IepAuditReport } from "@/lib/iep-schema";
+import { FROZEN_ITEMS, PILLAR_MAX_SCORES, REVISION_CATEGORIES, type AuditScope, type IepAuditReport } from "@/lib/iep-schema";
 import { DEFAULT_REPORT_SECTIONS, PILLAR_LABELS, REPORT_SECTION_OPTIONS, exportDocx, exportJson, exportPdf, type ReportSections } from "@/lib/export-report";
 import { ReportEditor } from "@/components/ReportEditor";
 
@@ -29,9 +29,9 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "محرك مراجعة وتدقيق الخطط التربوية الفردية" },
-      { name: "description", content: "محرك ذكاء اصطناعي حتمي للمراجعة المزدوجة للخطط التربوية الفردية: تقييم رقمي للمعايير الـ 24، رؤية عامة للخطة، مصفوفة تغطية الاحتياجات، وتصدير PDF/DOCX/JSON." },
+      { name: "description", content: "محرك ذكاء اصطناعي حتمي للمراجعة المزدوجة للخطط التربوية الفردية: تقييم رقمي للبنود الفعّالة (19)، رؤية عامة للخطة، مصفوفة تغطية الاحتياجات، وتصدير PDF/DOCX/JSON." },
       { property: "og:title", content: "محرك مراجعة وتدقيق الخطط التربوية الفردية" },
-      { property: "og:description", content: "مراجعة مزدوجة حتمية للخطط التربوية الفردية مع تقييم رقمي للمعايير الـ 24 وتصدير PDF/DOCX/JSON." },
+      { property: "og:description", content: "مراجعة مزدوجة حتمية للخطط التربوية الفردية مع تقييم رقمي للبنود الفعّالة (19) وتصدير PDF/DOCX/JSON." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -44,11 +44,11 @@ type Stage = "idle" | "parsing" | "auditing";
 const SAVED_REPORT_KEY = "iep-audit:last-report";
 type SavedReport = { result: AuditResult; fileInfo: { name: string; textLength: number } | null; reportSections: ReportSections };
 
-async function runAudit(document: ParsedDocument): Promise<AuditResult> {
+async function runAudit(document: ParsedDocument, scope: AuditScope): Promise<AuditResult> {
   const response = await fetch("/api/audit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ documentName: document.name, documentText: document.text }),
+    body: JSON.stringify({ documentName: document.name, documentText: document.text, scope }),
   });
   if (!response.ok || !response.body) throw new Error("تعذر الاتصال بمحرك التدقيق.");
 
@@ -110,6 +110,8 @@ function Home() {
     }
   }, [result, fileInfo, reportSections]);
 
+  const [scope, setScope] = useState<AuditScope>("both");
+
   async function handleFile(file: File) {
     setError(null);
     setResult(null);
@@ -120,7 +122,13 @@ function Home() {
       const parsed: ParsedDocument = { name: file.name, text: await extractTextFromFile(file) };
       setFileInfo({ name: parsed.name, textLength: parsed.text.length });
       setStage("auditing");
-      setResult(await runAudit(parsed));
+      const res = await runAudit(parsed, scope);
+      setReportSections((prev) => ({
+        ...prev,
+        ...(scope === "level1" ? { overview: false, revisions: false, mapping: false, categories: false } : {}),
+        ...(scope === "level2" ? { standards: false } : {}),
+      }));
+      setResult(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : "حدث خطأ غير متوقع.");
       setFileInfo(null);
@@ -157,7 +165,7 @@ function Home() {
             </span>
             <div>
               <h1 className="text-lg font-bold leading-tight">محرك مراجعة وتدقيق الخطط التربوية الفردية</h1>
-              <p className="text-xs text-muted-foreground">مراجعة مزدوجة حتمية — تقييم رقمي للمعايير الـ 24 + مراجعة إشرافية إضافية</p>
+              <p className="text-xs text-muted-foreground">مراجعة مزدوجة حتمية — تقييم رقمي للبنود الفعّالة (19) + مراجعة إشرافية إضافية</p>
             </div>
           </div>
           {result && (
@@ -220,6 +228,29 @@ function Home() {
               </p>
             </div>
 
+            <div className="space-y-2">
+              <p className="text-sm font-medium">نطاق المراجعة</p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {([
+                  { id: "both", t: "المستويان معاً", d: "مراجعة كاملة" },
+                  { id: "level1", t: "المستوى الأول فقط", d: "التقييم الرقمي لمعايير الجودة" },
+                  { id: "level2", t: "المستوى الثاني فقط", d: "الرؤية العامة وتعديل الأهداف" },
+                ] as const).map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setScope(o.id)}
+                    className={`rounded-xl border p-3 text-right transition-colors ${scope === o.id ? "border-primary bg-primary/5" : "border-border bg-card hover:bg-muted"}`}
+                  >
+                    <p className="text-sm font-bold">{o.t}</p>
+                    <p className="text-xs text-muted-foreground">{o.d}</p>
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">تنفيذ مستوى واحد يختصر زمن المراجعة.</p>
+            </div>
+
             <div
               onDragOver={(e) => {
                 e.preventDefault();
@@ -271,7 +302,7 @@ function Home() {
 
             <div className="grid gap-3 sm:grid-cols-3">
               {[
-                { icon: ClipboardCheck, t: "تقييم رقمي حتمي", d: "درجة من 24 ونسبة امتثال وقرار اعتماد وفق المعايير الرسمية" },
+                { icon: ClipboardCheck, t: "تقييم رقمي حتمي", d: "درجة من 19 ونسبة امتثال وقرار اعتماد وفق المعايير الرسمية" },
                 { icon: Sparkles, t: "مراجعة إشرافية إضافية", d: "رؤية عامة للخطة، أهداف معدلة مصنفة، ومصفوفة تغطية الاحتياجات" },
                 { icon: Download, t: "تصدير مرن", d: "تعديل التقرير ثم طباعته أو تصديره PDF وWord وJSON بأقسام مختارة" },
               ].map(({ icon: Icon, t, d }) => (
@@ -398,24 +429,27 @@ function AuditReportView({ result, fileInfo, reportSections }: { result: AuditRe
           <p className="text-xs text-muted-foreground">المركز/المدرسة: {s.school_center || "غير محدد"}</p>
           {fileInfo && <p className="text-xs text-muted-foreground">الملف: {fileInfo.name}</p>}
         </div>
-        <div className="flex items-center">
-          <ScoreRing percent={l1.compliance_percent} label="نسبة الاتساق" sub={`النتيجة: ${l1.total_score} من 24`} />
+        <div className={`flex items-center ${report.audit_scope === "level2" ? "hidden" : ""}`}>
+          <ScoreRing percent={l1.compliance_percent} label="نسبة الاتساق" sub={`النتيجة: ${l1.total_score} من 19`} />
         </div>
-        <div className="space-y-1">
+        <div className={`space-y-1 ${report.audit_scope === "level2" ? "hidden" : ""}`}>
           <p className="text-xs text-muted-foreground">قرار الاعتماد الرقمي</p>
           <p className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-bold ${decisionOk ? "bg-primary/10 text-primary" : decisionMid ? "bg-accent text-accent-foreground" : "bg-destructive/10 text-destructive"}`}>
             {decisionOk ? <CheckCircle2 className="h-4 w-4" /> : <Award className="h-4 w-4" />}
             {l1.accreditation_decision}
           </p>
         </div>
-        <div className="space-y-1">
+        <div className={`space-y-1 ${report.audit_scope === "level1" ? "hidden" : ""}`}>
           <p className="text-xs text-muted-foreground">تغطية الاحتياجات</p>
           <p className="font-bold">{coverage.all_covered ? "جميع الاحتياجات مغطاة" : `${coverage.uncovered_needs.length} احتياج غير مغطى`}</p>
           <p className="text-xs text-muted-foreground">{report.revisions.length} هدفاً معدلاً في جدول التتبع</p>
         </div>
       </div>
 
-      <Section title="المستوى الأول — التقييم الرقمي لمعايير الجودة الـ 24" hidden={!reportSections.standards}>
+      <Section title="المستوى الأول — التقييم الرقمي لمعايير الجودة (19 بنداً فعّالاً)" hidden={!reportSections.standards}>
+        <p className="mb-3 rounded-lg bg-muted p-2 text-xs text-muted-foreground">
+          بنود مجمّدة مؤقتاً ولا تُحتسب: {FROZEN_ITEMS.map((f) => `${f.id} ${f.label}`).join("، ")}
+        </p>
         <div className="grid gap-3 sm:grid-cols-2">
           {PILLAR_LABELS.map(({ key, label }, i) => {
             const pillar = l1[key];

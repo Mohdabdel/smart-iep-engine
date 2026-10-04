@@ -2,7 +2,7 @@ import { PILLAR_MAX_SCORES, REVISION_CATEGORIES, type IepAuditReport } from "./i
 
 export const REPORT_SECTION_OPTIONS = [
   { id: "summary", label: "بيانات الطالب" },
-  { id: "standards", label: "التقييم الرقمي للمعايير الـ 24" },
+  { id: "standards", label: "التقييم الرقمي للبنود الفعّالة (19)" },
   { id: "overview", label: "الرؤية العامة للخطة" },
   { id: "revisions", label: "جدول تتبع التعديلات" },
   { id: "mapping", label: "مصفوفة تغطية الاحتياجات" },
@@ -86,8 +86,8 @@ export async function exportDocx(report: IepAuditReport, sections: ReportSection
       p(`الاسم: ${s.student_name} — العمر: ${s.age ?? "غير محدد"} — نوع الإعاقة: ${s.disability_type} — المركز/المدرسة: ${s.school_center || "غير محدد"}`),
     ] : []),
     ...(sections.standards ? [
-      p("المستوى الأول: التقييم الرقمي لمعايير الجودة الـ 24", { heading: HeadingLevel.HEADING_1 }),
-      p(`النتيجة الإجمالية للجودة: ${l1.total_score} من 24 | نسبة الاتساق: ${l1.compliance_percent}%`, { bold: true }),
+      p("المستوى الأول: التقييم الرقمي لمعايير الجودة (19 بنداً فعّالاً)", { heading: HeadingLevel.HEADING_1 }),
+      p(`النتيجة الإجمالية للجودة: ${l1.total_score} من 19 | نسبة الاتساق: ${l1.compliance_percent}%`, { bold: true }),
       p(`قرار الاعتماد الرقمي: ${l1.accreditation_decision}`, { bold: true }),
       ...PILLAR_LABELS.flatMap(({ key, label }, i) => {
         const pillar = l1[key];
