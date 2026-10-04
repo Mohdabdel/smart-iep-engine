@@ -4,6 +4,7 @@ import { z } from "zod";
 const inputSchema = z.object({
   documentName: z.string().min(1),
   documentText: z.string().min(40),
+  scope: z.enum(["both", "level1", "level2"]).default("both"),
 });
 
 // Streams NDJSON keepalive pings while the long audit runs, then the final result.
@@ -39,6 +40,7 @@ export const Route = createFileRoute("/api/audit")({
                 undefined,
                 parsedInput.data.documentName,
                 parsedInput.data.documentText,
+                parsedInput.data.scope,
               );
               const parity = applyUnifiedRuleParity(report);
               send({
