@@ -228,8 +228,19 @@ function strictify(node: unknown): unknown {
   return o;
 }
 
-export function buildScopedJsonSchema(t: ReviewType): import("json-schema").JSONSchema7 {
-  const keys = new Set(keysForReviewType(t));
+/** تقسيم المراجعة إلى أجزاء متوازية — كل جزء طلب مستقل أقصر من سقف زمن الطلب */
+const PART_BUCKETS: ModelKey[][] = [
+  ["student_info", "executive_summary", "review_decision", "critical_gates", "criteria_results", "plaafp_review", "smart_review", "recommendations"],
+  ["needs_coverage", "whole_plan", "daily_routines", "personal_social", "transition_minimum", "vertical_alignment"],
+  ["revisions"],
+];
+export function partsForReviewType(t: ReviewType): ModelKey[][] {
+  const wanted = new Set(keysForReviewType(t));
+  return PART_BUCKETS.map((b) => b.filter((k) => wanted.has(k))).filter((b) => b.length > 0);
+}
+
+export function buildScopedJsonSchema(t: ReviewType, only?: ModelKey[]): import("json-schema").JSONSchema7 {
+  const keys = new Set(only ?? keysForReviewType(t));
   const shape = Object.fromEntries(Object.entries(modelOutputZ.shape).filter(([k]) => keys.has(k as ModelKey)));
   return strictify(z.toJSONSchema(z.object(shape), { target: "draft-7" })) as import("json-schema").JSONSchema7;
 }
