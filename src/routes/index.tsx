@@ -24,13 +24,15 @@ import {
   REVIEW_TYPES,
   SOURCE_STATES,
   SOURCE_STATE_LABELS,
+  TRANSITION_APPLICABILITY,
+  TRANSITION_APPLICABILITY_LABELS,
   defaultReviewConfig,
   pillarsForReviewType,
   type CriterionState,
   type EvidenceSourceId,
   type ReviewConfig,
 } from "@/lib/criteria-registry";
-import { FINDING_STATUSES, partsForReviewType, toReport, type IepAuditReport, type ModelKey, type ModelOutput } from "@/lib/iep-schema";
+import { FINDING_STATUSES, TRANSITION_CONCEPTS, normalizeReport, partsForReviewType, toReport, type IepAuditReport, type ModelKey, type ModelOutput } from "@/lib/iep-schema";
 import { applyReviewerParity, statusCounts, type ParityStats } from "@/lib/iep-parity";
 import {
   DEFAULT_REPORT_SECTIONS,
@@ -138,7 +140,7 @@ function Home() {
       if (!raw) return;
       const saved = JSON.parse(raw) as SavedReport;
       if (saved.result?.report?.schema_version !== 4) return;
-      setResult(saved.result);
+      setResult({ ...saved.result, report: normalizeReport(saved.result.report) });
       setFileInfo(saved.fileInfo ?? null);
       setReportSections({ ...DEFAULT_REPORT_SECTIONS, ...(saved.reportSections ?? {}) });
       setRestored(true);
@@ -543,6 +545,35 @@ function ScopeConfigurator(props: {
             </div>
           );
         })}
+      </div>
+
+      <div className="space-y-3 rounded-2xl border border-border bg-card p-5">
+        <h3 className="font-semibold">4. انطباق مفاهيم الانتقال (اختياري)</h3>
+        <p className="text-xs text-muted-foreground">
+          إن حددت الانطباق تُحسب نسبة التغطية على المفاهيم المنطبقة فقط؛ وإن تُركت كلها «غير محدد» تُعرض نسبة وصفية على جميع المفاهيم. النسبة ليست قرار اعتماد.
+        </p>
+        <div className="divide-y divide-border rounded-xl border border-border">
+          {TRANSITION_CONCEPTS.map((c) => {
+            const cur = config.transition_applicability?.[c] ?? "unset";
+            return (
+              <div key={c} className="flex flex-wrap items-center gap-2 px-3 py-2">
+                <span className="min-w-40 flex-1 text-sm">{c}</span>
+                <div className="flex overflow-hidden rounded-lg border border-input">
+                  {TRANSITION_APPLICABILITY.map((st) => (
+                    <button
+                      key={st}
+                      disabled={busy}
+                      onClick={() => setConfig({ ...config, transition_applicability: { ...(config.transition_applicability ?? {}), [c]: st } })}
+                      className={`px-2 py-1 text-xs ${cur === st ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+                    >
+                      {TRANSITION_APPLICABILITY_LABELS[st]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {props.error && (

@@ -344,6 +344,9 @@ export function selectJson(report: IepAuditReport, sections: ReportSections) {
     if (!sections[id]) continue;
     for (const k of JSON_KEYS[id]) out[k] = report[k];
   }
+  const fcs = report.functional_contexts;
+  if (sections.invested_contexts !== sections.potential_contexts && out["functional_contexts"])
+    out["functional_contexts"] = sections.invested_contexts ? { invested: fcs.invested } : { potential: fcs.potential };
   if (sections.decision_brief) {
     out["decision_brief"] = { goals: goalReviewCounts(report), plaafp_judgment: report.plaafp_assessment.judgment, transition: transitionStats(report) };
   }
