@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { activeCriteria, defaultReviewConfig } from "@/lib/criteria-registry";
-import { buildScopedJsonSchema, emptyModelOutput, toReport, type ModelOutput } from "@/lib/iep-schema";
-import { DATA_REQUIRED_TEXT, EXTERNAL_ATTESTATION_TEXT, applyReviewerParity } from "@/lib/iep-parity";
+import { TRANSITION_CONCEPTS, buildScopedJsonSchema, emptyModelOutput, toReport, type ModelOutput } from "@/lib/iep-schema";
+import { POTENTIAL_CONTEXT_STATUS } from "@/lib/functional-context-registry";
+import { DATA_REQUIRED_TEXT, EXTERNAL_ATTESTATION_TEXT, NO_GOAL_REVISIONS_TEXT, SEPARATION_CONSTRAINT_TEXT, applyReviewerParity, goalReviewCounts, transitionStats } from "@/lib/iep-parity";
 import { DEFAULT_REPORT_SECTIONS, buildReportBlocks, selectJson } from "@/lib/export-report";
 import { IEP_SYSTEM_PROMPT } from "@/lib/iep-audit.server";
 
@@ -116,5 +117,107 @@ describe("report sections & scope", () => {
     const props = Object.keys(buildScopedJsonSchema("quality").properties!);
     expect(props).toContain("criteria_results");
     expect(props).not.toContain("whole_plan");
+  });
+});
+
+describe("supervisory review upgrade", () => {
+  const sup = () => {
+    const c = defaultReviewConfig();
+    c.review_type = "supervisory";
+    return c;
+  };
+  const goal = (n: string, verdict: "سليم" | "يحتاج تعديل" | "تعذر الحكم", text = "أن يرتب الطالب أدواته") => ({ goal_number: n, domain: "التواصل الوظيفي", goal_text: text, verdict, issue: "" });
+  const blocks = (r: ReturnType<typeof build>["report"]) => buildReportBlocks(r);
+  const block = (r: ReturnType<typeof build>["report"], id: string) => blocks(r).find((b) => b.id === id);
+
+  it("supervisory type always requests the four mandatory layers", () => {
+    const props = Object.keys(buildScopedJsonSchema("supervisory").properties!);
+    for (const k of ["goal_review", "needs_coverage", "whole_plan", "transition_coverage", "plaafp_assessment", "functional_contexts", "revisions"]) expect(props).toContain(k);
+  });
+
+  it("TEST-A: sound goals give an explicit no-revision statement and counts", () => {
+    const r = build({ goal_review: { goals: [goal("1", "سليم"), goal("2", "سليم")], recurring_patterns: [] } }, sup()).report;
+    const b = block(r, "goal_review")!;
+    expect(b.lines[0]).toBe(NO_GOAL_REVISIONS_TEXT);
+    expect(b.lines.join(" ")).toContain("السليمة صياغياً: 2");
+  });
+
+  it("TEST-B: non-operational verb goal needs revision with Before & After", () => {
+    const r = build(
+      { goal_review: { goals: [goal("1", "سليم"), goal("3", "سليم", "أن يفهم الطالب التعليمات")], recurring_patterns: [] }, revisions: [{ ...revision("أن ينفذ الطالب التعليمات المصورة"), goal_number: "3", original_goal: "أن يفهم الطالب التعليمات" }] },
+      sup(),
+    ).report;
+    expect(goalReviewCounts(r).needs).toBe(1);
+    expect(block(r, "goal_review")!.lines[0]).toBe("رُصدت 1 أهداف تحتاج تعديلًا في الصياغة.");
+    expect(block(r, "before_after")!.table!.rows[0]![2]).toBe("أن يفهم الطالب التعليمات");
+  });
+
+  it("TEST-C: failed strength/need separation constrains only dependent judgments", () => {
+    const pa = { ...emptyModelOutput().plaafp_assessment, separation_extracted: false, judgment: "غير قابل للتحقق" as const };
+    const r = build({ plaafp_assessment: pa, goal_review: { goals: [goal("1", "سليم")], recurring_patterns: [] }, transition_coverage: [{ concept: "التواصل الوظيفي", status: "مغطى", supporting_goals: ["1"], note: "", improvement: "" }] }, sup()).report;
+    expect(r.plaafp_assessment.constrained_judgments[0]).toBe(SEPARATION_CONSTRAINT_TEXT);
+    expect(block(r, "goal_review")).toBeDefined();
+    expect(block(r, "transition_matrix")).toBeDefined();
+  });
+
+  it("TEST-D/E: undocumented invested context becomes a potential opportunity; documented one stays invested", () => {
+    const r = build(
+      {
+        functional_contexts: {
+          invested: [
+            { context: "نشاط السباحة", goals: ["4"], how: "تغيير الملابس", quality: "مقبول", evidence_text: "بعد العودة من السباحة" },
+            { context: "التسوق", goals: ["5"], how: "", quality: "محدود", evidence_text: "" },
+          ],
+          potential: [{ bank_id: "FC-11", context: "المقصف المدرسي", rationale: "أهداف اختيار وشراء", integrable_goals: ["5"] }, { bank_id: "X", context: "مخترع", rationale: "", integrable_goals: [] }],
+        },
+      },
+      sup(),
+    ).report;
+    expect(r.functional_contexts.invested.map((i) => i.context)).toEqual(["نشاط السباحة"]);
+    expect(r.functional_contexts.potential.map((p) => p.context)).toEqual(["المقصف المدرسي", "التسوق"]);
+    expect(block(r, "potential_contexts")!.table!.rows[0]![3]).toBe(POTENTIAL_CONTEXT_STATUS);
+  });
+
+  it("TEST-F: transition matrix fills all concepts, applies NA, gives percentage and improvements", () => {
+    const cfg = sup();
+    cfg.transition_applicability = { "التنقل": "na" };
+    const r = build(
+      {
+        transition_coverage: [
+          { concept: "التواصل الوظيفي", status: "مغطى", supporting_goals: ["1"], note: "", improvement: "x" },
+          { concept: "إدارة الوقت والروتين", status: "مغطى جزئياً", supporting_goals: ["2"], note: "", improvement: "ربط المنبه بسلسلة إنهاء المهمة" },
+          { concept: "المشاركة المجتمعية", status: "غير مغطى", supporting_goals: [], note: "", improvement: "استثمار الأنشطة خارج المركز" },
+        ],
+      },
+      cfg,
+    ).report;
+    expect(r.transition_coverage).toHaveLength(TRANSITION_CONCEPTS.length);
+    expect(r.transition_coverage.find((t) => t.concept === "التنقل")!.status).toBe("لا ينطبق");
+    expect(r.transition_coverage.find((t) => t.concept === "التواصل الوظيفي")!.improvement).toBe("");
+    const ts = transitionStats(r);
+    expect(ts.mode).toBe("actual");
+    expect(ts.covered + ts.partial).toBe(2);
+    expect(block(r, "transition_improvements")!.lines.join(" ")).toContain("ربط المنبه");
+    const desc = transitionStats(build({ transition_coverage: r.transition_coverage.filter((t) => t.concept !== "التنقل") }, sup()).report);
+    expect(desc.mode).toBe("descriptive");
+    expect(desc.label).toContain("نسبة تغطية وصفية وليست قرار اعتماد");
+  });
+
+  it("TEST-G: decision brief shows goal counts, PLAAFP judgment, clusters and transition ratio", () => {
+    const r = build(
+      {
+        goal_review: { goals: [goal("1", "سليم"), goal("2", "تعذر الحكم")], recurring_patterns: [] },
+        plaafp_assessment: { ...emptyModelOutput().plaafp_assessment, judgment: "يحتاج تحسيناً جوهرياً" },
+        whole_plan: { ...emptyModelOutput().whole_plan, functional_clusters: [{ role: "دور العامل", goals: ["1"] }] },
+        transition_coverage: [{ concept: "التواصل الوظيفي", status: "مغطى", supporting_goals: ["1"], note: "", improvement: "" }],
+      },
+      sup(),
+    ).report;
+    const text = block(r, "decision_brief")!.lines.join("\n");
+    expect(text).toContain("تمت مراجعة 2 هدفاً: 1 سليمة، 0 تحتاج تعديلاً، 1 تعذر الحكم عليها.");
+    expect(text).toContain("يحتاج تحسيناً جوهرياً");
+    expect(text).toContain("المسارات الوظيفية المكتشفة: 1");
+    expect(text).toContain("نسبة تغطية وصفية");
+    expect(selectJson(r, { ...DEFAULT_REPORT_SECTIONS, goal_review: false })["goal_review"]).toBeUndefined();
   });
 });

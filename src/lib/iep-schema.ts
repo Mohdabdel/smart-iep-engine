@@ -73,6 +73,11 @@ export const CRITICAL_GATES = [
   "عدم ملاءمة عمرية جوهرية",
   "انقطاع واضح في تقييم ← احتياج ← هدف",
 ] as const;
+export const GOAL_VERDICTS = ["سليم", "يحتاج تعديل", "تعذر الحكم"] as const;
+export const PLAAFP_JUDGMENTS = ["كافٍ للمراجعة", "يحتاج تحسيناً محدوداً", "يحتاج تحسيناً جوهرياً", "غير قابل للتحقق"] as const;
+export const TRANSITION_COVERAGE_STATUSES = ["مغطى", "مغطى جزئياً", "غير مغطى", "لا ينطبق", "غير قابل للتحقق"] as const;
+export const INVESTMENT_QUALITY = ["جيد", "مقبول", "محدود"] as const;
+
 export const MEASUREMENT_TYPES = [
   "discrete task",
   "chained task",
@@ -137,6 +142,36 @@ const verticalZ = z.object({
   items: z.array(z.object({ previous_goal: str, progress: str, current_goal: str, next_step: str, note: str })),
 });
 
+const goalReviewZ = z.object({
+  goals: z.array(z.object({ goal_number: str, domain: str, goal_text: str, verdict: z.enum(GOAL_VERDICTS), issue: str })),
+  recurring_patterns: z.array(str),
+});
+
+const plaafpAssessmentZ = z.object({
+  judgment: z.enum(PLAAFP_JUDGMENTS),
+  strengths_present: z.array(str),
+  needs_improvement: z.array(str),
+  improvement_opportunities: z.array(str),
+  describes_current_performance: str,
+  gap_visible: str,
+  baseline_present: str,
+  strengths_needs_distinct: str,
+  sufficient_for_next_step: str,
+  mastered_retargeted: str,
+  /** false عند تعذر فصل نقاط القوة عن الاحتياجات (مثل فشل استخراج جدول من PDF) */
+  separation_extracted: z.boolean(),
+  constrained_judgments: z.array(str),
+});
+
+const functionalContextsZ = z.object({
+  invested: z.array(z.object({ context: str, goals: z.array(str), how: str, quality: z.enum(INVESTMENT_QUALITY), evidence_text: str })),
+  potential: z.array(z.object({ bank_id: str, context: str, rationale: str, integrable_goals: z.array(str) })),
+});
+
+const transitionCoverageZ = z.array(
+  z.object({ concept: z.enum(TRANSITION_CONCEPTS), status: z.enum(TRANSITION_COVERAGE_STATUSES), supporting_goals: z.array(str), note: str, improvement: str }),
+);
+
 export const revisionZ = z.object({
   domain: z.enum(IEP_DOMAINS),
   goal_number: str,
@@ -176,6 +211,11 @@ export const modelOutputZ = z.object({
   vertical_alignment: verticalZ,
   revisions: z.array(revisionZ),
   recommendations: z.array(str),
+  goal_review: goalReviewZ,
+  plaafp_assessment: plaafpAssessmentZ,
+  functional_contexts: functionalContextsZ,
+  transition_coverage: transitionCoverageZ,
+  top_priorities: z.array(str),
 });
 export type ModelOutput = z.infer<typeof modelOutputZ>;
 export type ModelKey = keyof ModelOutput;
@@ -194,19 +234,20 @@ export type IepAuditReport = Omit<ModelOutput, "criteria_results" | "revisions">
 };
 
 const ALWAYS: ModelKey[] = ["student_info", "executive_summary", "review_decision", "critical_gates", "recommendations"];
-const SUPERVISORY: ModelKey[] = ["needs_coverage", "whole_plan", "daily_routines", "personal_social", "transition_minimum", "revisions"];
+/** الطبقات الإشرافية الإلزامية: مراجعة الأهداف، الاحتياج←الهدف، الرؤية الكلية، الانتقال */
+const SUPERVISORY: ModelKey[] = ["goal_review", "plaafp_assessment", "functional_contexts", "transition_coverage", "top_priorities", "needs_coverage", "whole_plan", "daily_routines", "personal_social", "transition_minimum", "revisions"];
 
 /** المفاتيح المطلوبة من المحرك حسب نوع المراجعة — تقليص المخرجات يقلل زمن المراجعة */
 export function keysForReviewType(t: ReviewType): ModelKey[] {
   switch (t) {
     case "quality":
-      return [...ALWAYS, "criteria_results", "plaafp_review", "smart_review"];
+      return [...ALWAYS, "criteria_results", "plaafp_review", "smart_review", "goal_review", "plaafp_assessment"];
     case "supervisory":
       return [...ALWAYS, ...SUPERVISORY];
     case "goals":
-      return [...ALWAYS, "criteria_results", "smart_review", "needs_coverage", "revisions"];
+      return [...ALWAYS, "criteria_results", "smart_review", "needs_coverage", "revisions", "goal_review", "top_priorities"];
     case "plaafp":
-      return [...ALWAYS, "criteria_results", "plaafp_review", "needs_coverage"];
+      return [...ALWAYS, "criteria_results", "plaafp_review", "needs_coverage", "plaafp_assessment", "top_priorities"];
     case "compare_previous":
       return [...ALWAYS, "criteria_results", "plaafp_review", "smart_review", ...SUPERVISORY, "vertical_alignment"];
     default:
@@ -230,9 +271,10 @@ function strictify(node: unknown): unknown {
 
 /** تقسيم المراجعة إلى أجزاء متوازية — كل جزء طلب مستقل أقصر من سقف زمن الطلب */
 const PART_BUCKETS: ModelKey[][] = [
-  ["student_info", "executive_summary", "review_decision", "critical_gates", "criteria_results", "plaafp_review", "smart_review", "recommendations"],
-  ["needs_coverage", "whole_plan", "daily_routines", "personal_social", "transition_minimum", "vertical_alignment"],
-  ["revisions"],
+  ["student_info", "executive_summary", "review_decision", "critical_gates", "criteria_results", "plaafp_review", "smart_review", "recommendations", "top_priorities"],
+  ["needs_coverage", "whole_plan", "daily_routines", "personal_social", "vertical_alignment", "plaafp_assessment"],
+  ["transition_minimum", "transition_coverage", "functional_contexts"],
+  ["goal_review", "revisions"],
 ];
 export function partsForReviewType(t: ReviewType): ModelKey[][] {
   const wanted = new Set(keysForReviewType(t));
@@ -270,6 +312,44 @@ export function emptyModelOutput(): ModelOutput {
     vertical_alignment: { available: false, comment: "", items: [] },
     revisions: [],
     recommendations: [],
+    goal_review: { goals: [], recurring_patterns: [] },
+    plaafp_assessment: {
+      judgment: "غير قابل للتحقق",
+      strengths_present: [],
+      needs_improvement: [],
+      improvement_opportunities: [],
+      describes_current_performance: "",
+      gap_visible: "",
+      baseline_present: "",
+      strengths_needs_distinct: "",
+      sufficient_for_next_step: "",
+      mastered_retargeted: "",
+      separation_extracted: true,
+      constrained_judgments: [],
+    },
+    functional_contexts: { invested: [], potential: [] },
+    transition_coverage: [],
+    top_priorities: [],
+  };
+}
+
+/** أي من المفاتيح نُفِّذت فعلاً في هذا التقرير (لتمييز «لم يُنفذ» عن «فارغ») */
+export function reviewedKeys(report: { review_config: ReviewConfig }) {
+  return new Set<ModelKey>(keysForReviewType(report.review_config.review_type));
+}
+
+/** توافق رجعي: يكمل تقريراً محفوظاً قديماً بالحقول الجديدة */
+export function normalizeReport(r: IepAuditReport): IepAuditReport {
+  const e = emptyModelOutput();
+  return {
+    ...e,
+    ...r,
+    plaafp_assessment: { ...e.plaafp_assessment, ...(r.plaafp_assessment ?? {}) },
+    goal_review: r.goal_review ?? e.goal_review,
+    functional_contexts: r.functional_contexts ?? e.functional_contexts,
+    transition_coverage: r.transition_coverage ?? e.transition_coverage,
+    top_priorities: r.top_priorities ?? [],
+    manual_notes: r.manual_notes ?? [],
   };
 }
 

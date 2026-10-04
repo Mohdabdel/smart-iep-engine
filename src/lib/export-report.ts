@@ -7,25 +7,34 @@ import {
   criterionById,
   pillarsForReviewType,
 } from "./criteria-registry";
-import { REVIEWER_STATUS_LABELS, type IepAuditReport } from "./iep-schema";
+import { REVIEWER_STATUS_LABELS, reviewedKeys, type IepAuditReport } from "./iep-schema";
+import { goalReviewCounts, transitionStats } from "./iep-parity";
+import { POTENTIAL_CONTEXT_STATUS } from "./functional-context-registry";
 
 export const REPORT_SECTION_OPTIONS = [
   { id: "summary", label: "بيانات الطالب" },
   { id: "scope", label: "نطاق المراجعة ومصادر الأدلة" },
   { id: "criteria_config", label: "المعايير المفعلة والمجمدة" },
+  { id: "decision_brief", label: "الموجز التنفيذي المحدّث (موجز القرار)" },
   { id: "executive", label: "الموجز التنفيذي" },
   { id: "decision", label: "قرار المراجعة" },
   { id: "gates", label: "البوابات الحرجة" },
   { id: "standards", label: "معايير الجودة" },
   { id: "plaafp", label: "مستوى الأداء الحالي" },
+  { id: "plaafp_assessment", label: "مراجعة مستوى الأداء الحالي" },
   { id: "smart", label: "مراجعة SMART" },
   { id: "mapping", label: "مصفوفة تغطية الاحتياجات" },
   { id: "whole_plan", label: "الرؤية الكلية والترابط الوظيفي" },
   { id: "routines", label: "استثمار الروتين اليومي" },
+  { id: "invested_contexts", label: "استثمار المواقف الفعلية" },
+  { id: "potential_contexts", label: "الفرص الوظيفية المحتملة" },
   { id: "personal_social", label: "المهارات الشخصية والاجتماعية" },
   { id: "transition_min", label: "الحد الأدنى من مفاهيم الانتقال" },
   { id: "transition_goals", label: "الأهداف الانتقالية الموجودة" },
+  { id: "transition_matrix", label: "مصفوفة تغطية الانتقال" },
+  { id: "transition_improvements", label: "فرص تحسين التغطية الانتقالية" },
   { id: "vertical", label: "المواءمة الرأسية (خطة سابقة)" },
+  { id: "goal_review", label: "نتيجة مراجعة صياغة الأهداف" },
   { id: "before_after", label: "Before & After" },
   { id: "recommendations", label: "التوصيات الإشرافية" },
   { id: "manual_notes", label: "ملاحظات المشرف اليدوية" },
@@ -56,6 +65,11 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
   const cfg = report.review_config;
   const s = report.student_info;
   const pillars = new Set(pillarsForReviewType(cfg.review_type));
+  const ran = reviewedKeys(report);
+  const gc = goalReviewCounts(report);
+  const ts = transitionStats(report);
+  const fc = report.functional_contexts;
+  const pa = report.plaafp_assessment;
   const blocks: ReportBlock[] = [];
   const push = (b: ReportBlock) => {
     if (sections[b.id] && (b.lines.some((l) => l.trim()) || (b.table && b.table.rows.length))) blocks.push(b);
@@ -75,7 +89,11 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
   const cfgRows = CRITERIA_REGISTRY.flatMap((p) =>
     p.criteria.map((c) => {
       const st = cfg.criteria[c.id]?.state ?? "active";
-      const label = pillars.has(p.id) ? CRITERION_STATE_LABELS[st] : "خارج نوع المراجعة";
+      const label = pillars.has(p.id)
+        ? CRITERION_STATE_LABELS[st]
+        : p.id === "P2" && ran.has("goal_review")
+          ? "خارج المعايير الرسمية — الأهداف مراجعة إشرافياً"
+          : "خارج نوع المراجعة";
       return [c.id, c.label, label, cfg.criteria[c.id]?.reason ?? ""];
     }),
   );
@@ -86,6 +104,16 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
     lines: [notVerifiable.length ? `معايير غير قابلة للتحقق من الوثيقة المقدمة: ${notVerifiable.join("، ")}` : ""],
     table: { head: ["الرقم", "المعيار", "الحالة", "سبب التجميد"], rows: cfgRows },
   });
+  const brief: string[] = [];
+  if (ran.has("goal_review"))
+    brief.push(`تمت مراجعة ${gc.reviewed} هدفاً: ${gc.sound} سليمة، ${gc.needs} تحتاج تعديلاً، ${gc.unclear} تعذر الحكم عليها.`, gc.statement);
+  if (ran.has("plaafp_assessment")) brief.push(`حكم مستوى الأداء الحالي: ${pa.judgment}.`);
+  if (ran.has("whole_plan")) brief.push(`المسارات الوظيفية المكتشفة: ${report.whole_plan.functional_clusters.length} — الحكم النوعي للترابط: ${report.whole_plan.judgment}.`);
+  if (ran.has("functional_contexts")) brief.push(`المواقف المستثمرة فعلياً: ${fc.invested.length} — الفرص الوظيفية المحتملة: ${fc.potential.length}.`);
+  if (ran.has("transition_coverage") && report.transition_coverage.length)
+    brief.push(`تغطية الانتقال: مغطى ${ts.covered}، جزئي ${ts.partial}، غير مغطى ${ts.uncovered}، غير قابل للتحقق ${ts.unverifiable}، لا ينطبق ${ts.na}.`, ts.label);
+  if (report.top_priorities.length) brief.push("أهم أولويات التصحيح:", ...report.top_priorities.slice(0, 3).map((t, i) => `${i + 1}. ${t}`));
+  push({ id: "decision_brief", title: titleOf("decision_brief"), lines: brief });
   push({ id: "executive", title: titleOf("executive"), lines: [report.executive_summary] });
   push({ id: "decision", title: titleOf("decision"), lines: [`قرار المراجعة: ${report.review_decision}`] });
   push({
@@ -101,10 +129,15 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
     title: titleOf("standards"),
     lines: [],
     table: {
-      head: ["المعيار", "الحالة", "الأهمية", "الدليل", "التحليل", "الإجراء المقترح", "مصدر الدليل", "حالة المراجع"],
+      head: ["المعيار", "الحالة", "نوع الملاحظة", "الأهمية", "الدليل", "التحليل", "الإجراء المقترح", "مصدر الدليل", "حالة المراجع"],
       rows: report.criteria_results.map((f) => [
         `${f.criterion_id} ${criterionById(f.criterion_id)?.label ?? ""}`,
         f.status,
+        f.status === "غير قابل للتحقق من الوثيقة المقدمة" || f.evidence_origin === "unavailable"
+          ? "ملاحظة مقيدة بنقص البيانات"
+          : f.evidence_origin === "external_reviewer_attestation"
+            ? "متحقق بتأكيد المراجع"
+            : "ملاحظة مؤكدة من المستند",
         f.severity,
         [v(f.evidence_text), f.page_or_section].filter(Boolean).join(" — "),
         f.reasoning_summary,
@@ -115,6 +148,34 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
     },
   });
   push({ id: "plaafp", title: titleOf("plaafp"), lines: [report.plaafp_review] });
+  if (ran.has("plaafp_assessment"))
+    push({
+      id: "plaafp_assessment",
+      title: titleOf("plaafp_assessment"),
+      lines: [
+        `الحكم: ${pa.judgment}`,
+        ...pa.constrained_judgments.map((c) => `قيد: ${c}`),
+        pa.strengths_present.length ? "أ. ما هو موجود بصورة جيدة:" : "",
+        ...pa.strengths_present.map((t) => `• ${t}`),
+        pa.needs_improvement.length ? "ب. ما الذي يحتاج تحسيناً:" : "",
+        ...pa.needs_improvement.map((t) => `• ${t}`),
+        pa.improvement_opportunities.length ? "ج. أهم فرص التحسين التنفيذية:" : "",
+        ...pa.improvement_opportunities.map((t, i) => `${i + 1}. ${t}`),
+      ],
+      table: {
+        head: ["السؤال", "الإجابة"],
+        rows: (
+          [
+            ["هل يصف ما يفعله المتعلم الآن؟", pa.describes_current_performance],
+            ["هل تظهر الفجوة التعليمية؟", pa.gap_visible],
+            ["هل توجد نقطة مقارنة/Baseline؟", pa.baseline_present],
+            ["هل نقاط القوة والاحتياجات متميزة؟", pa.strengths_needs_distinct],
+            ["هل المعلومات كافية لاختيار الخطوة التالية؟", pa.sufficient_for_next_step],
+            ["مهارات قوة تعود أهدافاً دون خطوة تقدم؟", pa.mastered_retargeted],
+          ] as string[][]
+        ).filter((r) => r[1]!.trim()),
+      },
+    });
   push({ id: "smart", title: titleOf("smart"), lines: [report.smart_review] });
   push({
     id: "mapping",
@@ -151,6 +212,24 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
       ? { head: ["الموقف اليومي", "الفرصة الوظيفية", "الدليل"], rows: report.daily_routines.opportunities.map((o) => [o.routine, o.opportunity, v(o.evidence_text)]) }
       : undefined,
   });
+  if (ran.has("functional_contexts")) {
+    push({
+      id: "invested_contexts",
+      title: titleOf("invested_contexts"),
+      lines: fc.invested.length ? [] : ["لم يُرصد في الوثيقة موقف وظيفي مستثمر بدليل صريح."],
+      table: fc.invested.length
+        ? { head: ["الموقف", "الأهداف المستخدمة", "كيف استُثمر", "جودة الاستثمار", "الدليل"], rows: fc.invested.map((i) => [i.context, i.goals.join("، "), i.how, i.quality, v(i.evidence_text)]) }
+        : undefined,
+    });
+    push({
+      id: "potential_contexts",
+      title: titleOf("potential_contexts"),
+      lines: fc.potential.length ? ["مرجع إشرافي من بنك الأنشطة — لا يعني أن النشاط موجود، ولا يولّد أهدافاً."] : [],
+      table: fc.potential.length
+        ? { head: ["النشاط/الموقف", "لماذا قد يكون مناسباً", "الأهداف القابلة للدمج", "الحالة"], rows: fc.potential.map((p) => [p.context, p.rationale, v(p.integrable_goals.join("، ")), POTENTIAL_CONTEXT_STATUS]) }
+        : undefined,
+    });
+  }
   push({ id: "personal_social", title: titleOf("personal_social"), lines: [report.personal_social] });
   const tm = report.transition_minimum;
   push({
@@ -164,6 +243,20 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
     lines: [],
     table: { head: ["المجال", "الهدف", "مفهوم الانتقال", "ملاحظة"], rows: tm.goals.map((g) => [g.domain, g.goal, g.concept, v(g.note)]) },
   });
+  if (report.transition_coverage.length) {
+    push({
+      id: "transition_matrix",
+      title: titleOf("transition_matrix"),
+      lines: [`مغطى بالكامل: ${ts.covered} — مغطى جزئياً: ${ts.partial} — غير مغطى: ${ts.uncovered} — غير قابل للتحقق: ${ts.unverifiable} — لا ينطبق: ${ts.na}`, ts.label],
+      table: { head: ["مفهوم الانتقال", "الحالة", "الأهداف الداعمة", "ملاحظة", "فرصة تحسين"], rows: report.transition_coverage.map((t) => [t.concept, t.status, v(t.supporting_goals.join("، ")), v(t.note), v(t.improvement)]) },
+    });
+    const imp = report.transition_coverage.filter((t) => t.improvement.trim());
+    push({
+      id: "transition_improvements",
+      title: titleOf("transition_improvements"),
+      lines: imp.length ? ["فرص تطوير إشرافية للمسار — وليست أهدافاً نهائية جاهزة.", ...imp.map((t) => `• ${t.concept} (${t.status}): ${t.improvement}`)] : [],
+    });
+  }
   const va = report.vertical_alignment;
   push({
     id: "vertical",
@@ -173,6 +266,22 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
       ? { head: ["الهدف السابق", "مستوى التقدم", "الهدف الحالي", "الخطوة الوظيفية الأكبر", "ملاحظة"], rows: va.items.map((i) => [i.previous_goal, v(i.progress), i.current_goal, i.next_step, v(i.note)]) }
       : undefined,
   });
+  if (ran.has("goal_review"))
+    push({
+      id: "goal_review",
+      title: titleOf("goal_review"),
+      lines: [
+        gc.statement,
+        `الأهداف التي تمت مراجعتها: ${gc.reviewed} — السليمة صياغياً: ${gc.sound} — تحتاج تعديلاً: ${gc.needs} — تعذر الحكم عليها: ${gc.unclear}`,
+        report.goal_review.recurring_patterns.length ? `أهم أنماط التعديل المتكررة: ${report.goal_review.recurring_patterns.join("؛ ")}` : "",
+      ],
+      table: gc.needs + gc.unclear
+        ? {
+            head: ["رقم الهدف", "المجال", "الهدف", "الحكم", "الملاحظة"],
+            rows: report.goal_review.goals.filter((g) => g.verdict !== "سليم").map((g) => [v(g.goal_number), v(g.domain), g.goal_text, g.verdict, v(g.issue)]),
+          }
+        : undefined,
+    });
   const revs = report.revisions.filter((r) => r.reviewer_status !== "rejected");
   push({
     id: "before_after",
@@ -204,19 +313,26 @@ const JSON_KEYS: Record<ReportSectionId, (keyof IepAuditReport)[]> = {
   summary: ["student_info"],
   scope: ["review_config"],
   criteria_config: ["review_config"],
+  decision_brief: ["top_priorities"],
   executive: ["executive_summary"],
   decision: ["review_decision"],
   gates: ["critical_gates"],
   standards: ["criteria_results"],
   plaafp: ["plaafp_review"],
+  plaafp_assessment: ["plaafp_assessment"],
   smart: ["smart_review"],
   mapping: ["needs_coverage"],
   whole_plan: ["whole_plan"],
   routines: ["daily_routines"],
+  invested_contexts: ["functional_contexts"],
+  potential_contexts: ["functional_contexts"],
   personal_social: ["personal_social"],
   transition_min: ["transition_minimum"],
   transition_goals: ["transition_minimum"],
+  transition_matrix: ["transition_coverage"],
+  transition_improvements: ["transition_coverage"],
   vertical: ["vertical_alignment"],
+  goal_review: ["goal_review"],
   before_after: ["revisions"],
   recommendations: ["recommendations"],
   manual_notes: ["manual_notes"],
@@ -227,6 +343,12 @@ export function selectJson(report: IepAuditReport, sections: ReportSections) {
   for (const { id } of REPORT_SECTION_OPTIONS) {
     if (!sections[id]) continue;
     for (const k of JSON_KEYS[id]) out[k] = report[k];
+  }
+  const fcs = report.functional_contexts;
+  if (sections.invested_contexts !== sections.potential_contexts && out["functional_contexts"])
+    out["functional_contexts"] = sections.invested_contexts ? { invested: fcs.invested } : { potential: fcs.potential };
+  if (sections.decision_brief) {
+    out["decision_brief"] = { goals: goalReviewCounts(report), plaafp_judgment: report.plaafp_assessment.judgment, transition: transitionStats(report) };
   }
   return out;
 }

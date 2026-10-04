@@ -3,7 +3,11 @@ import { Check, Plus, Trash2, X } from "lucide-react";
 import {
   COVERAGE_STATUSES,
   FINDING_STATUSES,
+  GOAL_VERDICTS,
   IEP_DOMAINS,
+  INVESTMENT_QUALITY,
+  PLAAFP_JUDGMENTS,
+  TRANSITION_COVERAGE_STATUSES,
   MEASUREMENT_TYPES,
   PLAN_JUDGMENTS,
 
@@ -120,7 +124,7 @@ export function ReportEditor({ report, onSave, onClose }: { report: IepAuditRepo
     set({ revisions: d.revisions.map((r, j) => (j === i ? { ...r, reviewer_status: "edited", ...patch } : r)) });
   const setNeed = (i: number, patch: Partial<IepAuditReport["needs_coverage"][number]>) =>
     set({ needs_coverage: d.needs_coverage.map((n, j) => (j === i ? { ...n, ...patch } : n)) });
-  const editList = (key: "recommendations" | "manual_notes", i: number, val: string) =>
+  const editList = (key: "recommendations" | "manual_notes" | "top_priorities", i: number, val: string) =>
     set({ [key]: d[key].map((t, j) => (j === i ? val : t)) } as Partial<IepAuditReport>);
 
   return (
@@ -220,10 +224,69 @@ export function ReportEditor({ report, onSave, onClose }: { report: IepAuditRepo
             ))}
           </Group>
 
-          {(["recommendations", "manual_notes"] as const).map((key) => (
+          <Group title="مراجعة مستوى الأداء الحالي">
+            <Field label="الحكم"><Select value={d.plaafp_assessment.judgment} options={PLAAFP_JUDGMENTS} onChange={(v) => set({ plaafp_assessment: { ...d.plaafp_assessment, judgment: v } })} /></Field>
+            {([
+              ["strengths_present", "ما هو موجود بصورة جيدة (سطر لكل بند)"],
+              ["needs_improvement", "ما الذي يحتاج تحسيناً"],
+              ["improvement_opportunities", "فرص التحسين التنفيذية"],
+              ["constrained_judgments", "الأحكام المقيدة"],
+            ] as const).map(([k, label]) => (
+              <Field key={k} label={label}>
+                <Area rows={3} value={d.plaafp_assessment[k].join("\n")} onChange={(v) => set({ plaafp_assessment: { ...d.plaafp_assessment, [k]: v.split("\n").filter((x) => x.trim()) } })} />
+              </Field>
+            ))}
+          </Group>
+
+          <Group title={`نتيجة مراجعة صياغة الأهداف (${d.goal_review.goals.length})`} onAdd={() => set({ goal_review: { ...d.goal_review, goals: [...d.goal_review.goals, { goal_number: "", domain: "", goal_text: "", verdict: "سليم", issue: "" }] } })}>
+            {d.goal_review.goals.map((g, i) => {
+              const setG = (patch: Partial<typeof g>) => set({ goal_review: { ...d.goal_review, goals: d.goal_review.goals.map((x, j) => (j === i ? { ...x, ...patch } : x)) } });
+              return (
+                <div key={i} className="flex flex-wrap items-start gap-2 rounded-lg border border-border p-2">
+                  <input className={`${inputCls} w-16`} value={g.goal_number} onChange={(e) => setG({ goal_number: e.target.value })} />
+                  <div className="min-w-48 flex-1"><Area value={g.goal_text} onChange={(v) => setG({ goal_text: v })} /></div>
+                  <div className="w-32"><Select value={g.verdict} options={GOAL_VERDICTS} onChange={(v) => setG({ verdict: v })} /></div>
+                  <div className="min-w-40 flex-1"><Area value={g.issue} onChange={(v) => setG({ issue: v })} /></div>
+                  <button onClick={() => set({ goal_review: { ...d.goal_review, goals: d.goal_review.goals.filter((_, j) => j !== i) } })} aria-label="حذف" className="rounded p-1 text-destructive hover:bg-destructive/10"><Trash2 className="h-4 w-4" /></button>
+                </div>
+              );
+            })}
+          </Group>
+
+          <Group title={`المواقف المستثمرة فعلياً (${d.functional_contexts.invested.length}) والفرص المحتملة (${d.functional_contexts.potential.length})`}>
+            {d.functional_contexts.invested.map((c, i) => (
+              <div key={`i${i}`} className="flex flex-wrap items-start gap-2 rounded-lg border border-border p-2">
+                <span className="min-w-40 flex-1 text-sm">{c.context}</span>
+                <div className="w-28"><Select value={c.quality} options={INVESTMENT_QUALITY} onChange={(v) => set({ functional_contexts: { ...d.functional_contexts, invested: d.functional_contexts.invested.map((x, j) => (j === i ? { ...x, quality: v } : x)) } })} /></div>
+                <button onClick={() => set({ functional_contexts: { ...d.functional_contexts, invested: d.functional_contexts.invested.filter((_, j) => j !== i) } })} aria-label="حذف" className="rounded p-1 text-destructive hover:bg-destructive/10"><Trash2 className="h-4 w-4" /></button>
+              </div>
+            ))}
+            {d.functional_contexts.potential.map((c, i) => (
+              <div key={`p${i}`} className="flex flex-wrap items-start gap-2 rounded-lg border border-dashed border-border p-2">
+                <span className="w-40 text-sm">{c.context}</span>
+                <div className="min-w-48 flex-1"><Area value={c.rationale} onChange={(v) => set({ functional_contexts: { ...d.functional_contexts, potential: d.functional_contexts.potential.map((x, j) => (j === i ? { ...x, rationale: v } : x)) } })} /></div>
+                <button onClick={() => set({ functional_contexts: { ...d.functional_contexts, potential: d.functional_contexts.potential.filter((_, j) => j !== i) } })} aria-label="حذف" className="rounded p-1 text-destructive hover:bg-destructive/10"><Trash2 className="h-4 w-4" /></button>
+              </div>
+            ))}
+          </Group>
+
+          <Group title="مصفوفة تغطية الانتقال">
+            {d.transition_coverage.map((t, i) => {
+              const setT = (patch: Partial<typeof t>) => set({ transition_coverage: d.transition_coverage.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+              return (
+                <div key={i} className="flex flex-wrap items-start gap-2 rounded-lg border border-border p-2">
+                  <span className="w-48 text-sm">{t.concept}</span>
+                  <div className="w-36"><Select value={t.status} options={TRANSITION_COVERAGE_STATUSES} onChange={(v) => setT({ status: v })} /></div>
+                  <div className="min-w-48 flex-1"><Area value={t.improvement} onChange={(v) => setT({ improvement: v })} /></div>
+                </div>
+              );
+            })}
+          </Group>
+
+          {(["recommendations", "manual_notes", "top_priorities"] as const).map((key) => (
             <Group
               key={key}
-              title={key === "recommendations" ? "التوصيات الإشرافية" : "ملاحظات المشرف اليدوية (بما فيها ملاحظات السلامة)"}
+              title={key === "recommendations" ? "التوصيات الإشرافية" : key === "top_priorities" ? "أهم أولويات التصحيح" : "ملاحظات المشرف اليدوية (بما فيها ملاحظات السلامة)"}
               onAdd={() => set({ [key]: [...d[key], ""] } as Partial<IepAuditReport>)}
             >
               {d[key].map((t, i) => (
