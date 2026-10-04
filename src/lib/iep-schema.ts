@@ -31,13 +31,27 @@ export const ACCREDITATION_DECISIONS = [
   "غير معتمدة - تتطلب استكمال البنود",
 ] as const;
 
-/** حدود درجات الركائز الأربع (7 + 8 + 4 + 5 = 24) */
+/** البنود المجمدة مؤقتاً (محيّدة من الاحتساب) */
+export const FROZEN_ITEMS = [
+  { id: "1-2", label: "ذكر وتحديد أداة التقييم الرسمي" },
+  { id: "1-4", label: "تنوع أدوات التقييم" },
+  { id: "1-6", label: "حصر أولويات الأسرة" },
+  { id: "3-1", label: "حضور وتوقيعات الفريق" },
+  { id: "3-2", label: "إقرار ولي الأمر وموافقته" },
+] as const;
+
+/** حدود درجات الركائز بعد تحييد البنود المجمدة (4 + 8 + 2 + 5 = 19) */
 export const PILLAR_MAX_SCORES = {
-  pillar_1_plaafp: 7,
+  pillar_1_plaafp: 4,
   pillar_2_smart_goals: 8,
-  pillar_3_admin: 4,
+  pillar_3_admin: 2,
   pillar_4_transition: 5,
 } as const;
+export const TOTAL_MAX_SCORE = 19;
+
+/** نطاق التنفيذ: كل مستوى قابل للتشغيل منفرداً */
+export const AUDIT_SCOPES = ["both", "level1", "level2"] as const;
+export type AuditScope = (typeof AUDIT_SCOPES)[number];
 
 const pillarJsonSchema = (max: number): import("json-schema").JSONSchema7 => ({
   type: "object",
@@ -87,12 +101,12 @@ export const auditReportJsonSchema: import("json-schema").JSONSchema7 = {
         "pillar_4_transition",
       ],
       properties: {
-        total_score: { type: "number", minimum: 0, maximum: 24 },
+        total_score: { type: "number", minimum: 0, maximum: TOTAL_MAX_SCORE },
         compliance_percent: { type: "number", minimum: 0, maximum: 100 },
         accreditation_decision: { enum: [...ACCREDITATION_DECISIONS] },
-        pillar_1_plaafp: pillarJsonSchema(7),
+        pillar_1_plaafp: pillarJsonSchema(4),
         pillar_2_smart_goals: pillarJsonSchema(8),
-        pillar_3_admin: pillarJsonSchema(4),
+        pillar_3_admin: pillarJsonSchema(2),
         pillar_4_transition: pillarJsonSchema(5),
       },
     },
@@ -175,6 +189,7 @@ export type PillarScore = {
 };
 
 export type IepAuditReport = {
+  audit_scope?: AuditScope;
   student_info: {
     student_name: string;
     age: number | null;
@@ -227,6 +242,7 @@ const pillarZod = (max: number) =>
 
 /** تحقق نهائي صارم من بنية التقرير بعد الاستلام */
 export const auditReportZodSchema = z.object({
+  audit_scope: z.enum(AUDIT_SCOPES).optional(),
   student_info: z.object({
     student_name: z.string(),
     age: z.number().nullable(),
@@ -234,12 +250,12 @@ export const auditReportZodSchema = z.object({
     school_center: z.string(),
   }),
   level1_quality_standards: z.object({
-    total_score: z.number().min(0).max(24),
+    total_score: z.number().min(0).max(TOTAL_MAX_SCORE),
     compliance_percent: z.number().min(0).max(100),
     accreditation_decision: z.enum(ACCREDITATION_DECISIONS),
-    pillar_1_plaafp: pillarZod(7),
+    pillar_1_plaafp: pillarZod(4),
     pillar_2_smart_goals: pillarZod(8),
-    pillar_3_admin: pillarZod(4),
+    pillar_3_admin: pillarZod(2),
     pillar_4_transition: pillarZod(5),
   }),
   level2_supervisory_review: z.object({
@@ -272,3 +288,44 @@ export const auditReportZodSchema = z.object({
   ),
   recommendations: z.array(z.string()),
 });
+
+/** مخطط مُقلَّص حسب النطاق — يُرسل للنموذج ما هو مطلوب فقط لتقليل زمن المراجعة */
+export function buildScopedJsonSchema(scope: AuditScope): import("json-schema").JSONSchema7 {
+  if (scope === "both") return auditReportJsonSchema;
+  const props = auditReportJsonSchema.properties!;
+  const keys =
+    scope === "level1"
+      ? ["student_info", "level1_quality_standards", "recommendations"]
+      : ["student_info", "level2_supervisory_review", "revisions", "recommendations"];
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: keys,
+    properties: Object.fromEntries(keys.map((k) => [k, props[k]])),
+  };
+}
+
+const emptyPillar = (max: number): PillarScore => ({ score: 0, max_score: max, percent: 0, comment: "لم يُنفَّذ هذا المستوى في هذه المراجعة." });
+
+/** يكمل الأجزاء غير المنفذة بقيم فارغة ليبقى شكل التقرير موحداً */
+export function fillScopedReport(partial: Partial<IepAuditReport>, scope: AuditScope): IepAuditReport {
+  return {
+    audit_scope: scope,
+    student_info: partial.student_info ?? { student_name: "", age: null, disability_type: "", school_center: "" },
+    level1_quality_standards: partial.level1_quality_standards ?? {
+      total_score: 0,
+      compliance_percent: 0,
+      accreditation_decision: "غير معتمدة - تتطلب استكمال البنود",
+      pillar_1_plaafp: emptyPillar(4),
+      pillar_2_smart_goals: emptyPillar(8),
+      pillar_3_admin: emptyPillar(2),
+      pillar_4_transition: emptyPillar(5),
+    },
+    level2_supervisory_review: partial.level2_supervisory_review ?? {
+      overall_vision: { horizontal_bundling: "", cross_domain_integration: "", sequential_logic: "", scattered_goals: "" },
+      needs_coverage: { all_covered: true, uncovered_needs: [] },
+    },
+    revisions: partial.revisions ?? [],
+    recommendations: partial.recommendations ?? [],
+  };
+}
