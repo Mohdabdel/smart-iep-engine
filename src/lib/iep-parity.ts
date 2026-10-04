@@ -132,7 +132,7 @@ export function applyReviewerParity(report: IepAuditReport, config: ReviewConfig
   const functional_contexts = {
     invested: fc.invested.filter((i) => i.evidence_text.trim()),
     potential: [
-      ...fc.potential.filter((p) => contextById(p.bank_id) || demoted.length === 0 ? !!contextById(p.bank_id) : false),
+      ...fc.potential.filter((p) => !!contextById(p.bank_id)),
       ...demoted.map((i) => ({ bank_id: "", context: i.context, rationale: `لم يظهر دليل في الوثيقة على استثمار هذا الموقف. ${POTENTIAL_CONTEXT_STATUS}.`, integrable_goals: i.goals })),
     ],
   };
