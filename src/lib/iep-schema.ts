@@ -1,4 +1,6 @@
-import { z } from "zod";
+import { z } from "zod/v4";
+
+import type { ReviewConfig, ReviewType } from "./criteria-registry";
 
 /** المجالات الستة المعتمدة في الخطة التربوية الفردية */
 export const IEP_DOMAINS = [
@@ -10,322 +12,266 @@ export const IEP_DOMAINS = [
   "السلوك البينشخصي",
 ] as const;
 
-/** التصنيف الثلاثي الإلزامي للتعديلات */
 export const REVISION_CATEGORIES = [
   "تحسين جودة الهدف",
   "تعديل صياغة غير ملائمة",
   "تحسين لغة واتساق",
+  "تعديل بنيوي / ترابطي",
 ] as const;
 
-export const BANNED_IMPLIED_WORDS = [
-  "باستقلالية",
-  "بمفرده",
-  "دون مساعدة",
-  "بدون مساعدة",
+/** كلمات تُحذف عادة — إلا إذا كان مستوى الاستقلال/المساعدة متغيراً مقصوداً في القياس */
+export const IMPLIED_WORDS = ["باستقلالية", "بمفرده", "دون مساعدة", "بدون مساعدة"] as const;
+
+export const FINDING_STATUSES = [
+  "مستوفى",
+  "مستوفى جزئياً",
+  "غير مستوفى",
+  "غير قابل للتحقق من الوثيقة المقدمة",
+  "لا ينطبق",
+] as const;
+export const SEVERITIES = ["حرج", "مهم", "تحسين جودة"] as const;
+export const REVIEW_DECISIONS = [
+  "جاهزة للاعتماد",
+  "جاهزة بعد تعديلات محدودة",
+  "تحتاج إعادة مراجعة بعد التصحيح",
+  "لا يمكن استكمال الحكم لعدم كفاية المعلومات",
+] as const;
+export const EVIDENCE_ORIGINS = ["document", "external_reviewer_attestation", "unavailable"] as const;
+export const REVIEWER_STATUSES = ["pending", "accepted", "rejected", "edited"] as const;
+export const REVIEWER_STATUS_LABELS: Record<(typeof REVIEWER_STATUSES)[number], string> = {
+  pending: "بانتظار المراجع",
+  accepted: "مقبول",
+  rejected: "مرفوض",
+  edited: "معدّل",
+};
+export const COVERAGE_STATUSES = ["مغطى", "مغطى جزئياً", "غير مغطى"] as const;
+export const PLAN_JUDGMENTS = ["قوي", "مقبول", "ضعيف", "غير قابل للتحقق"] as const;
+export const TRANSITION_JUDGMENTS = ["كافية مبدئياً", "موجودة جزئياً", "محدودة", "غير قابلة للتحقق"] as const;
+export const TRANSITION_CONCEPTS = [
+  "الاستقلال والحياة اليومية",
+  "الاستعداد للعمل والسلوك المهني",
+  "التواصل الوظيفي",
+  "المهارات الشخصية والاجتماعية",
+  "تقرير المصير والاختيار والمبادرة",
+  "إدارة الوقت والروتين",
+  "التعامل مع المال والشراء",
+  "المشاركة المجتمعية",
+  "التنقل",
+  "الترفيه ووقت الفراغ",
+  "العلاقات والتفاعل الاجتماعي",
+  "استخدام الخدمات والموارد المجتمعية",
+  "الاستعداد لأدوار ما بعد التخرج",
+] as const;
+export const CRITICAL_GATES = [
+  "بيانات طالب مختلطة أو اسم طالب آخر",
+  "مستوى أداء غير كاف للحكم",
+  "غياب Baseline ضروري للحكم على الواقعية",
+  "احتياج رئيسي معلن بلا هدف",
+  "هدف غير قابل للقياس",
+  "معيار قياس غير صالح",
+  "إعادة تدريب مهارة متقنة بلا تقدم جديد واضح",
+  "عدم ملاءمة عمرية جوهرية",
+  "انقطاع واضح في تقييم ← احتياج ← هدف",
+] as const;
+export const MEASUREMENT_TYPES = [
+  "discrete task",
+  "chained task",
+  "duration",
+  "communication",
+  "initiation",
+  "transition",
+  "production",
 ] as const;
 
-/** قرارات الاعتماد الرقمي */
-export const ACCREDITATION_DECISIONS = [
-  "معتمدة",
-  "معتمدة بشرط التعديل",
-  "غير معتمدة - تتطلب استكمال البنود",
-] as const;
+const str = z.string();
 
-/** البنود المجمدة مؤقتاً (محيّدة من الاحتساب) */
-export const FROZEN_ITEMS = [
-  { id: "1-2", label: "ذكر وتحديد أداة التقييم الرسمي" },
-  { id: "1-4", label: "تنوع أدوات التقييم" },
-  { id: "1-6", label: "حصر أولويات الأسرة" },
-  { id: "3-1", label: "حضور وتوقيعات الفريق" },
-  { id: "3-2", label: "إقرار ولي الأمر وموافقته" },
-] as const;
-
-/** حدود درجات الركائز بعد تحييد البنود المجمدة (4 + 8 + 2 + 5 = 19) */
-export const PILLAR_MAX_SCORES = {
-  pillar_1_plaafp: 4,
-  pillar_2_smart_goals: 8,
-  pillar_3_admin: 2,
-  pillar_4_transition: 5,
-} as const;
-export const TOTAL_MAX_SCORE = 19;
-
-/** نطاق التنفيذ: كل مستوى قابل للتشغيل منفرداً */
-export const AUDIT_SCOPES = ["both", "level1", "level2"] as const;
-export type AuditScope = (typeof AUDIT_SCOPES)[number];
-
-const pillarJsonSchema = (max: number): import("json-schema").JSONSchema7 => ({
-  type: "object",
-  additionalProperties: false,
-  required: ["score", "max_score", "percent", "comment"],
-  properties: {
-    score: { type: "number", minimum: 0, maximum: max },
-    max_score: { type: "number", const: max },
-    percent: { type: "number", minimum: 0, maximum: 100 },
-    comment: { type: "string" },
-  },
+export const findingZ = z.object({
+  criterion_id: str,
+  status: z.enum(FINDING_STATUSES),
+  severity: z.enum(SEVERITIES),
+  evidence_text: str,
+  source_document: str,
+  page_or_section: str,
+  reasoning_summary: str,
+  recommended_action: str,
+  evidence_origin: z.enum(EVIDENCE_ORIGINS),
 });
 
-/** مخطط JSON الصارم المرسل إلى النموذج (Strict JSON Schema, Temperature 0) */
-export const auditReportJsonSchema: import("json-schema").JSONSchema7 = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "student_info",
-    "level1_quality_standards",
-    "level2_supervisory_review",
-    "revisions",
-    "recommendations",
-  ],
-  properties: {
-    student_info: {
-      type: "object",
-      additionalProperties: false,
-      required: ["student_name", "age", "disability_type", "school_center"],
-      properties: {
-        student_name: { type: "string" },
-        age: { type: ["number", "null"] },
-        disability_type: { type: "string" },
-        school_center: { type: "string" },
-      },
-    },
-    level1_quality_standards: {
-      type: "object",
-      additionalProperties: false,
-      required: [
-        "total_score",
-        "compliance_percent",
-        "accreditation_decision",
-        "pillar_1_plaafp",
-        "pillar_2_smart_goals",
-        "pillar_3_admin",
-        "pillar_4_transition",
-      ],
-      properties: {
-        total_score: { type: "number", minimum: 0, maximum: TOTAL_MAX_SCORE },
-        compliance_percent: { type: "number", minimum: 0, maximum: 100 },
-        accreditation_decision: { enum: [...ACCREDITATION_DECISIONS] },
-        pillar_1_plaafp: pillarJsonSchema(4),
-        pillar_2_smart_goals: pillarJsonSchema(8),
-        pillar_3_admin: pillarJsonSchema(2),
-        pillar_4_transition: pillarJsonSchema(5),
-      },
-    },
-    level2_supervisory_review: {
-      type: "object",
-      additionalProperties: false,
-      required: ["overall_vision", "needs_coverage"],
-      properties: {
-        overall_vision: {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "horizontal_bundling",
-            "cross_domain_integration",
-            "sequential_logic",
-            "scattered_goals",
-          ],
-          properties: {
-            horizontal_bundling: { type: "string" },
-            cross_domain_integration: { type: "string" },
-            sequential_logic: { type: "string" },
-            scattered_goals: { type: "string" },
-          },
-        },
-        needs_coverage: {
-          type: "object",
-          additionalProperties: false,
-          required: ["all_covered", "uncovered_needs"],
-          properties: {
-            all_covered: { type: "boolean" },
-            uncovered_needs: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                required: ["need", "domain", "suggested_goal"],
-                properties: {
-                  need: { type: "string" },
-                  domain: { enum: [...IEP_DOMAINS] },
-                  suggested_goal: { type: "string" },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-    revisions: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: [
-          "domain",
-          "original_goal",
-          "revised_goal",
-          "revision_category",
-          "rationale",
-          "standards_violated",
-        ],
-        properties: {
-          domain: { enum: [...IEP_DOMAINS] },
-          original_goal: { type: "string" },
-          revised_goal: { type: "string" },
-          revision_category: { enum: [...REVISION_CATEGORIES] },
-          rationale: { type: "string" },
-          standards_violated: { type: "array", items: { type: "string" } },
-        },
-      },
-    },
-    recommendations: { type: "array", items: { type: "string" } },
-  },
-};
+const gateZ = z.object({ gate: z.enum(CRITICAL_GATES), description: str, evidence_text: str });
 
-export type PillarScore = {
-  score: number;
-  max_score: number;
-  percent: number;
-  comment: string;
-};
+const needZ = z.object({
+  domain: z.enum(IEP_DOMAINS),
+  need: str,
+  matched_goal: str,
+  coverage_status: z.enum(COVERAGE_STATUSES),
+  note: str,
+  /** هدف مقترح فقط عند كفاية البيانات، وإلا «متطلب تصحيح / بيانات إضافية مطلوبة» */
+  suggested_goal: str,
+});
 
-export type IepAuditReport = {
-  audit_scope?: AuditScope;
-  student_info: {
-    student_name: string;
-    age: number | null;
-    disability_type: string;
-    school_center: string;
-  };
-  level1_quality_standards: {
-    total_score: number;
-    compliance_percent: number;
-    accreditation_decision: (typeof ACCREDITATION_DECISIONS)[number];
-    pillar_1_plaafp: PillarScore;
-    pillar_2_smart_goals: PillarScore;
-    pillar_3_admin: PillarScore;
-    pillar_4_transition: PillarScore;
-  };
-  level2_supervisory_review: {
-    overall_vision: {
-      horizontal_bundling: string;
-      cross_domain_integration: string;
-      sequential_logic: string;
-      scattered_goals: string;
-    };
-    needs_coverage: {
-      all_covered: boolean;
-      uncovered_needs: {
-        need: string;
-        domain: (typeof IEP_DOMAINS)[number];
-        suggested_goal: string;
-      }[];
-    };
-  };
-  revisions: {
-    domain: (typeof IEP_DOMAINS)[number];
-    original_goal: string;
-    revised_goal: string;
-    revision_category: (typeof REVISION_CATEGORIES)[number];
-    rationale: string;
-    standards_violated: string[];
-  }[];
-  recommendations: string[];
-};
+const wholePlanZ = z.object({
+  within_domain_coherence: str,
+  cross_domain_integration: str,
+  sequential_logic: str,
+  scattered_goals: str,
+  functional_clusters: z.array(z.object({ role: str, goals: z.array(str) })),
+  governing_question_answer: str,
+  judgment: z.enum(PLAN_JUDGMENTS),
+});
 
-const pillarZod = (max: number) =>
-  z.object({
-    score: z.number().min(0).max(max),
-    max_score: z.literal(max),
-    percent: z.number().min(0).max(100),
-    comment: z.string(),
-  });
+const routinesZ = z.object({
+  comment: str,
+  opportunities: z.array(z.object({ routine: str, opportunity: str, evidence_text: str })),
+});
 
-/** تحقق نهائي صارم من بنية التقرير بعد الاستلام */
-export const auditReportZodSchema = z.object({
-  audit_scope: z.enum(AUDIT_SCOPES).default("both"),
+const transitionZ = z.object({
+  answer: str,
+  judgment: z.enum(TRANSITION_JUDGMENTS),
+  integrated_pathways: z.array(str),
+  goals: z.array(z.object({ domain: z.enum(IEP_DOMAINS), goal: str, concept: z.enum(TRANSITION_CONCEPTS), note: str })),
+});
+
+const verticalZ = z.object({
+  available: z.boolean(),
+  comment: str,
+  items: z.array(z.object({ previous_goal: str, progress: str, current_goal: str, next_step: str, note: str })),
+});
+
+export const revisionZ = z.object({
+  domain: z.enum(IEP_DOMAINS),
+  goal_number: str,
+  original_goal: str,
+  defect_type: str,
+  criterion_affected: str,
+  rationale: str,
+  revised_goal: str,
+  technical_rule: str,
+  priority: z.enum(SEVERITIES),
+  note: str,
+  revision_category: z.enum(REVISION_CATEGORIES),
+  measurement_type: z.enum(MEASUREMENT_TYPES),
+  /** true عندما يكون مستوى الاستقلال/المساعدة متغيراً مقصوداً في القياس فلا تُحذف ألفاظه */
+  keep_assistance_wording: z.boolean(),
+});
+
+/** مخرجات النموذج — كل المفاتيح (يُقلَّص حسب نوع المراجعة) */
+export const modelOutputZ = z.object({
   student_info: z.object({
-    student_name: z.string(),
+    student_name: str,
     age: z.number().nullable(),
-    disability_type: z.string(),
-    school_center: z.string(),
+    disability_type: str,
+    school_center: str,
   }),
-  level1_quality_standards: z.object({
-    total_score: z.number().min(0).max(TOTAL_MAX_SCORE),
-    compliance_percent: z.number().min(0).max(100),
-    accreditation_decision: z.enum(ACCREDITATION_DECISIONS),
-    pillar_1_plaafp: pillarZod(4),
-    pillar_2_smart_goals: pillarZod(8),
-    pillar_3_admin: pillarZod(2),
-    pillar_4_transition: pillarZod(5),
-  }),
-  level2_supervisory_review: z.object({
-    overall_vision: z.object({
-      horizontal_bundling: z.string(),
-      cross_domain_integration: z.string(),
-      sequential_logic: z.string(),
-      scattered_goals: z.string(),
-    }),
-    needs_coverage: z.object({
-      all_covered: z.boolean(),
-      uncovered_needs: z.array(
-        z.object({
-          need: z.string(),
-          domain: z.enum(IEP_DOMAINS),
-          suggested_goal: z.string(),
-        }),
-      ),
-    }),
-  }),
-  revisions: z.array(
-    z.object({
-      domain: z.enum(IEP_DOMAINS),
-      original_goal: z.string(),
-      revised_goal: z.string(),
-      revision_category: z.enum(REVISION_CATEGORIES),
-      rationale: z.string(),
-      standards_violated: z.array(z.string()),
-    }),
-  ),
-  recommendations: z.array(z.string()),
+  executive_summary: str,
+  review_decision: z.enum(REVIEW_DECISIONS),
+  critical_gates: z.array(gateZ),
+  criteria_results: z.array(findingZ),
+  plaafp_review: str,
+  smart_review: str,
+  needs_coverage: z.array(needZ),
+  whole_plan: wholePlanZ,
+  daily_routines: routinesZ,
+  personal_social: str,
+  transition_minimum: transitionZ,
+  vertical_alignment: verticalZ,
+  revisions: z.array(revisionZ),
+  recommendations: z.array(str),
 });
+export type ModelOutput = z.infer<typeof modelOutputZ>;
+export type ModelKey = keyof ModelOutput;
 
-/** مخطط مُقلَّص حسب النطاق — يُرسل للنموذج ما هو مطلوب فقط لتقليل زمن المراجعة */
-export function buildScopedJsonSchema(scope: AuditScope): import("json-schema").JSONSchema7 {
-  if (scope === "both") return auditReportJsonSchema;
-  const props = auditReportJsonSchema.properties!;
-  const keys =
-    scope === "level1"
-      ? ["student_info", "level1_quality_standards", "recommendations"]
-      : ["student_info", "level2_supervisory_review", "revisions", "recommendations"];
+type WithReviewer<T> = T & { reviewer_status: (typeof REVIEWER_STATUSES)[number] };
+export type Finding = WithReviewer<z.infer<typeof findingZ>>;
+export type Revision = WithReviewer<z.infer<typeof revisionZ>>;
+
+/** التقرير الكامل كما يُعرض ويُحرر ويُصدّر */
+export type IepAuditReport = Omit<ModelOutput, "criteria_results" | "revisions"> & {
+  schema_version: 4;
+  review_config: ReviewConfig;
+  criteria_results: Finding[];
+  revisions: Revision[];
+  manual_notes: string[];
+};
+
+const ALWAYS: ModelKey[] = ["student_info", "executive_summary", "review_decision", "critical_gates", "recommendations"];
+const SUPERVISORY: ModelKey[] = ["needs_coverage", "whole_plan", "daily_routines", "personal_social", "transition_minimum", "revisions"];
+
+/** المفاتيح المطلوبة من المحرك حسب نوع المراجعة — تقليص المخرجات يقلل زمن المراجعة */
+export function keysForReviewType(t: ReviewType): ModelKey[] {
+  switch (t) {
+    case "quality":
+      return [...ALWAYS, "criteria_results", "plaafp_review", "smart_review"];
+    case "supervisory":
+      return [...ALWAYS, ...SUPERVISORY];
+    case "goals":
+      return [...ALWAYS, "criteria_results", "smart_review", "needs_coverage", "revisions"];
+    case "plaafp":
+      return [...ALWAYS, "criteria_results", "plaafp_review", "needs_coverage"];
+    case "compare_previous":
+      return [...ALWAYS, "criteria_results", "plaafp_review", "smart_review", ...SUPERVISORY, "vertical_alignment"];
+    default:
+      return [...ALWAYS, "criteria_results", "plaafp_review", "smart_review", ...SUPERVISORY, "vertical_alignment"];
+  }
+}
+
+/** تحويل إلى JSON Schema صارم: كل الحقول مطلوبة وadditionalProperties=false */
+function strictify(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(strictify);
+  if (!node || typeof node !== "object") return node;
+  const o = { ...(node as Record<string, unknown>) };
+  delete o["$schema"];
+  for (const k of Object.keys(o)) o[k] = strictify(o[k]);
+  if (o["type"] === "object" && o["properties"]) {
+    o["additionalProperties"] = false;
+    o["required"] = Object.keys(o["properties"] as object);
+  }
+  return o;
+}
+
+export function buildScopedJsonSchema(t: ReviewType): import("json-schema").JSONSchema7 {
+  const keys = new Set(keysForReviewType(t));
+  const shape = Object.fromEntries(Object.entries(modelOutputZ.shape).filter(([k]) => keys.has(k as ModelKey)));
+  return strictify(z.toJSONSchema(z.object(shape), { target: "draft-7" })) as import("json-schema").JSONSchema7;
+}
+
+export function emptyModelOutput(): ModelOutput {
   return {
-    type: "object",
-    additionalProperties: false,
-    required: keys,
-    properties: Object.fromEntries(keys.map((k) => [k, props[k]!])) as Record<string, import("json-schema").JSONSchema7Definition>,
+    student_info: { student_name: "", age: null, disability_type: "", school_center: "" },
+    executive_summary: "",
+    review_decision: "لا يمكن استكمال الحكم لعدم كفاية المعلومات",
+    critical_gates: [],
+    criteria_results: [],
+    plaafp_review: "",
+    smart_review: "",
+    needs_coverage: [],
+    whole_plan: {
+      within_domain_coherence: "",
+      cross_domain_integration: "",
+      sequential_logic: "",
+      scattered_goals: "",
+      functional_clusters: [],
+      governing_question_answer: "",
+      judgment: "غير قابل للتحقق",
+    },
+    daily_routines: { comment: "", opportunities: [] },
+    personal_social: "",
+    transition_minimum: { answer: "", judgment: "غير قابلة للتحقق", integrated_pathways: [], goals: [] },
+    vertical_alignment: { available: false, comment: "", items: [] },
+    revisions: [],
+    recommendations: [],
   };
 }
 
-const emptyPillar = (max: number): PillarScore => ({ score: 0, max_score: max, percent: 0, comment: "لم يُنفَّذ هذا المستوى في هذه المراجعة." });
-
-/** يكمل الأجزاء غير المنفذة بقيم فارغة ليبقى شكل التقرير موحداً */
-export function fillScopedReport(partial: Partial<IepAuditReport>, scope: AuditScope): IepAuditReport {
+/** يكمل الأجزاء غير المطلوبة بقيم فارغة ليبقى شكل التقرير موحداً */
+export function toReport(partial: Partial<ModelOutput>, config: ReviewConfig): IepAuditReport {
+  const full = { ...emptyModelOutput(), ...partial };
+  const parsed = modelOutputZ.parse(full);
   return {
-    audit_scope: scope,
-    student_info: partial.student_info ?? { student_name: "", age: null, disability_type: "", school_center: "" },
-    level1_quality_standards: partial.level1_quality_standards ?? {
-      total_score: 0,
-      compliance_percent: 0,
-      accreditation_decision: "غير معتمدة - تتطلب استكمال البنود",
-      pillar_1_plaafp: emptyPillar(4),
-      pillar_2_smart_goals: emptyPillar(8),
-      pillar_3_admin: emptyPillar(2),
-      pillar_4_transition: emptyPillar(5),
-    },
-    level2_supervisory_review: partial.level2_supervisory_review ?? {
-      overall_vision: { horizontal_bundling: "", cross_domain_integration: "", sequential_logic: "", scattered_goals: "" },
-      needs_coverage: { all_covered: true, uncovered_needs: [] },
-    },
-    revisions: partial.revisions ?? [],
-    recommendations: partial.recommendations ?? [],
+    ...parsed,
+    schema_version: 4,
+    review_config: config,
+    criteria_results: parsed.criteria_results.map((f) => ({ ...f, reviewer_status: "pending" as const })),
+    revisions: parsed.revisions.map((r) => ({ ...r, reviewer_status: "pending" as const })),
+    manual_notes: [],
   };
 }
