@@ -2,6 +2,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { Output, jsonSchema, streamText } from "ai";
 
 import { createLovableAiGatewayRunIdFetch } from "./gateway-run-id";
+import { POTENTIAL_CONTEXT_STATUS, contextBankPromptText } from "./functional-context-registry";
 import {
   CRITERIA_REGISTRY,
   EVIDENCE_SOURCES,
@@ -14,8 +15,11 @@ import {
 import {
   CRITICAL_GATES,
   IEP_DOMAINS,
+  GOAL_VERDICTS,
   IMPLIED_WORDS,
   MEASUREMENT_TYPES,
+  PLAAFP_JUDGMENTS,
+  TRANSITION_COVERAGE_STATUSES,
   REVIEW_DECISIONS,
   REVISION_CATEGORIES,
   TRANSITION_CONCEPTS,
@@ -90,8 +94,35 @@ answer: هل عالجت الخطة عموماً الحد الأدنى المنا
 ## Before & After (revisions)
 فقط للأهداف التي تحتاج فعلاً تعديلاً — لا تعدّل هدفاً صحيحاً لزيادة الأمثلة. الحقول: domain (${IEP_DOMAINS.join(" | ")})، goal_number، original_goal، defect_type، criterion_affected، rationale، revised_goal (يلتزم A–F ولا يخترع أرقاماً غير موجودة في البيانات؛ إن لزم معيار غير متاح اكتب [يحدده الفريق])، technical_rule، priority (حرج | مهم | تحسين جودة)، note، revision_category (${REVISION_CATEGORIES.join(" | ")})، measurement_type (${MEASUREMENT_TYPES.join(" | ")})، keep_assistance_wording.
 
+## مراجعة صياغة الأهداف الإشرافية (goal_review) — إلزامية حتى لو كانت معايير P2 الرسمية خارج النطاق
+«خارج نوع المراجعة» لا يعني «لم تتم مراجعة الهدف». راجع كل هدف موجود في الخطة دون استثناء وأخرج له عنصراً في goals: goal_number، domain، goal_text (نص الهدف كما ورد مختصراً إن طال)، verdict (${GOAL_VERDICTS.join(" | ")})، issue (فارغ للسليم، وإلا نوع الخلل باختصار).
+افحص: «أن» كبداية مؤسسية إن كان نمط الخطة، الفعل المضارع الإجرائي، السلوك المستهدف، ظرف الأداء، مؤشر الأداء، الإطار الزمني، قابلية الملاحظة والقياس، نوع القياس المناسب، وضوح التطبيق لمعلم آخر، عدم تكديس معايير القياس، عدم ازدحام ظروف الأداء، القيمة الوظيفية، الملاءمة العمرية، عدم إعادة تدريب مهارة متقنة بلا تعميم/تعقيد/استقلال أكبر/سياق جديد/دور أكبر.
+كل هدف verdict = "يحتاج تعديل" يجب أن يقابله عنصر في revisions بنفس goal_number (Before & After)، والعكس. recurring_patterns: أهم أنماط التعديل المتكررة (2–5). إن كانت كل الأهداف سليمة فاترك revisions فارغة — هذا حكم صريح بسلامتها وليس صمتاً.
+
+## مراجعة مستوى الأداء الحالي (plaafp_assessment)
+judgment: ${PLAAFP_JUDGMENTS.join(" | ")}. strengths_present (ما هو موجود بصورة جيدة)، needs_improvement (ما يحتاج تحسيناً)، improvement_opportunities (3–5 فرص تحسين تنفيذية).
+أجب باختصار: describes_current_performance (هل يصف ما يفعله المتعلم الآن أم يسرد أسماء مهارات؟)، gap_visible (هل تظهر الفجوة التعليمية؟)، baseline_present (هل توجد نقطة مقارنة؟)، strengths_needs_distinct (هل القوة والاحتياج متميزان؟)، sufficient_for_next_step (هل تكفي لاختيار الخطوة التالية؟)، mastered_retargeted (مهارات قوة تعود أهدافاً بلا خطوة تقدم؟).
+separation_extracted = false إذا تعذر فصل نقاط القوة عن الاحتياجات (مثل جدول مفكك من PDF)؛ عندها قيّد فقط الأحكام المعتمدة على هذا الفصل في constrained_judgments، واستمر في مراجعة الأهداف والانتقال والترابط كاملة.
+البوابات الحرجة قيود على أجزاء محددة من الحكم، وليست سبباً لإسكات مراجعة الصياغة أو الانتقال أو الترابط.
+
+## استثمار المواقف والأنشطة الوظيفية (functional_contexts)
+بنك مرجعي للمواقف المحتملة (مرجع فقط، لا يثبت وجود النشاط):
+${contextBankPromptText()}
+- invested: مواقف وردت فعلاً في الخطة أو مصدر مرفق واستُثمرت بأهداف: context، goals (نصوص/أرقام الأهداف)، how، quality (جيد | مقبول | محدود)، evidence_text (اقتباس من الوثيقة إلزامي).
+- potential: فرص من البنك لم ترد في الوثيقة لكنها مناسبة لأهداف الخطة الحالية: bank_id (مثل FC-07)، context، rationale (لماذا بناءً على الأهداف الحالية)، integrable_goals. حالتها دائماً "${POTENTIAL_CONTEXT_STATUS}". مثال: أهداف اختيار + شراء + تواصل دون ذكر تسوق → اقترح FC-07/FC-11/FC-08 كفرص محتملة، ولا تدّعِ وجودها. إذا ورد نشاط في الوثيقة (مثل السباحة) فهو invested، ويمكن استنتاج فرص مرتبطة به (العناية الذاتية، تنظيم الملابس، الغسيل) إن اتسقت مع الأهداف.
+- لا تولّد أهدافاً من البنك.
+
+## مصفوفة تغطية مفاهيم الانتقال (transition_coverage)
+عنصر لكل مفهوم من: ${TRANSITION_CONCEPTS.join(" | ")}. status: ${TRANSITION_COVERAGE_STATUSES.join(" | ")}؛ supporting_goals (الأهداف الداعمة)؛ note؛ improvement (فرصة تحسين للمسار — لا هدف نهائي — فقط للجزئي وغير المغطى، مثل: "تحويل هدف التغليف من خطوة منفردة إلى مسار استلام مهمة ← تجهيز مواد ← تنفيذ ← فحص ← إنهاء"). لا تعاقب الخطة لعدم تغطية كل مفهوم. المفاهيم التي حدد المراجع أنها لا تنطبق اجعلها "لا ينطبق".
+
+## أولويات التصحيح (top_priorities)
+أهم 3 أولويات تصحيح محددة وقابلة للتنفيذ.
+
+## التمييز بين أنواع الملاحظات
+فرّق بين: ملاحظة مؤكدة من المستند، ملاحظة مقيدة بنقص البيانات، فرصة تطوير إشرافية، فرصة وظيفية محتملة تحتاج تحقق المشرف. لا تحوّل كل فرصة إلى خلل.
+
 ## الموجز والتوصيات
-executive_summary: فقرة موجزة لما يحتاج المشرف معرفته. recommendations: توصيات إشرافية محددة قابلة للتنفيذ (بلا توصيات سلامة).
+executive_summary: فقرة موجزة لما يحتاج المشرف معرفته (الأعداد تُحسب في الكود ولا تحتاج تكرارها). recommendations: توصيات إشرافية محددة قابلة للتنفيذ (بلا توصيات سلامة).
 plaafp_review / smart_review: تعليق نوعي موجز على مستوى الأداء الحالي وعلى جودة الأهداف SMART.`;
 
 export type SupportingDoc = { source: string; name: string; text: string };
@@ -112,7 +143,15 @@ export function buildUserPrompt(config: ReviewConfig, docs: SupportingDoc[], key
     config.review_type === "post_correction"
       ? "\nهذه مراجعة بعد التصحيح: ركّز على ما إذا عولجت الملاحظات السابقة ولا تعِد فتح ما هو سليم."
       : "";
-  return `نوع المراجعة: ${reviewType}${extra}
+  const appl = config.transition_applicability ?? {};
+  const naConcepts = TRANSITION_CONCEPTS.filter((c) => appl[c] === "na");
+  const appliesConcepts = TRANSITION_CONCEPTS.filter((c) => appl[c] === "applies");
+  const transitionNote = `\nانطباق مفاهيم الانتقال: ${naConcepts.length ? `لا ينطبق: ${naConcepts.join("، ")}` : "لم يحدد المراجع مفاهيم غير منطبقة"}${appliesConcepts.length ? ` — ينطبق: ${appliesConcepts.join("، ")}` : ""}`;
+  const supervisoryNote =
+    config.review_type === "supervisory"
+      ? "\nالمراجعة الإشرافية النوعية تنفذ إلزامياً أربع طبقات: مراجعة صياغة كل هدف، تغطية الاحتياج ← الهدف، الرؤية الكلية والترابط، ومراجعة الانتقال — حتى مع خروج معايير الجودة الرسمية من النطاق."
+      : "";
+  return `نوع المراجعة: ${reviewType}${extra}${supervisoryNote}${transitionNote}
 
 مصادر المعلومات:
 ${sources}
