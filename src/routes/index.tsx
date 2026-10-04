@@ -447,6 +447,9 @@ function AuditReportView({ result, fileInfo, reportSections }: { result: AuditRe
       </div>
 
       <Section title="المستوى الأول — التقييم الرقمي لمعايير الجودة (19 بنداً فعّالاً)" hidden={!reportSections.standards}>
+        <p className="mb-3 rounded-lg bg-muted p-2 text-xs text-muted-foreground">
+          بنود مجمّدة مؤقتاً ولا تُحتسب: {FROZEN_ITEMS.map((f) => `${f.id} ${f.label}`).join("، ")}
+        </p>
         <div className="grid gap-3 sm:grid-cols-2">
           {PILLAR_LABELS.map(({ key, label }, i) => {
             const pillar = l1[key];
