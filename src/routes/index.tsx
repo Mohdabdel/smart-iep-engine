@@ -1,8 +1,12 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Archive,
+  CheckCircle2,
   ChevronDown,
+  RotateCw,
+  XCircle,
   Download,
   FileJson,
   FileText,
@@ -34,6 +38,18 @@ import {
 } from "@/lib/criteria-registry";
 import { FINDING_STATUSES, TRANSITION_CONCEPTS, normalizeReport, partsForReviewType, toReport, type IepAuditReport, type ModelKey, type ModelOutput } from "@/lib/iep-schema";
 import { applyReviewerParity, statusCounts, type ParityStats } from "@/lib/iep-parity";
+import { RetriableError, caseStatusFor, initialParts, mergeParts, runParts, type PartState } from "@/lib/review-orchestrator";
+import {
+  PART_STATUS_LABELS,
+  cacheCaseDocuments,
+  cachedCaseDocuments,
+  createReviewCase,
+  dropCaseDocuments,
+  loadReviewCase,
+  saveEditedReport,
+  saveReviewPart,
+  updateReviewCase,
+} from "@/lib/review-store";
 import {
   DEFAULT_REPORT_SECTIONS,
   REPORT_SECTION_OPTIONS,
@@ -60,29 +76,19 @@ export const Route = createFileRoute("/")({
 });
 
 type ParsedDocument = { source: string; name: string; text: string };
-type AuditResult = { report: IepAuditReport; parity?: ParityStats };
+type AuditResult = { report: IepAuditReport; parity?: ParityStats; partial?: string[] | undefined };
 type Stage = "idle" | "configuring" | "parsing" | "auditing";
 type FileInfo = { name: string; textLength: number };
 
 const SAVED_REPORT_KEY = "iep-audit:last-report";
-type SavedReport = { result: AuditResult; fileInfo: FileInfo | null; reportSections: ReportSections };
+type SavedReport = { result: AuditResult; fileInfo: FileInfo | null; reportSections: ReportSections; caseId?: string | null };
 
-/** يشغّل أجزاء المراجعة بالتوازي (كل جزء أقصر من سقف زمن الطلب) ثم يدمجها ويطبق قواعد المراجع */
-async function runAudit(config: ReviewConfig, documents: ParsedDocument[], onProgress: (done: number, total: number) => void): Promise<AuditResult> {
-  const parts = partsForReviewType(config.review_type);
-  let done = 0;
-  onProgress(0, parts.length);
-  const partials = await Promise.all(
-    parts.map(async (keys) => {
-      const p = await runAuditPart(config, documents, keys);
-      done += 1;
-      onProgress(done, parts.length);
-      return p;
-    }),
-  );
-  const merged = Object.assign({}, ...partials) as Partial<ModelOutput>;
-  const parity = applyReviewerParity(toReport(merged, config), config);
-  return { report: parity.report, parity: parity.stats };
+/** يبني التقرير من الأجزاء المكتملة ويطبق قواعد المراجع مرة واحدة */
+function buildFromParts(parts: PartState[], config: ReviewConfig): AuditResult | null {
+  if (!parts.some((p) => p.status === "completed")) return null;
+  const parity = applyReviewerParity(toReport(mergeParts(parts), config), config);
+  const missing = parts.filter((p) => p.status !== "completed").map((p) => p.label);
+  return { report: parity.report, parity: parity.stats, partial: missing.length ? missing : undefined };
 }
 
 async function runAuditPart(config: ReviewConfig, documents: ParsedDocument[], keys: ModelKey[]): Promise<Partial<ModelOutput>> {
@@ -93,13 +99,20 @@ async function runAuditPart(config: ReviewConfig, documents: ParsedDocument[], k
   });
   if (!response.ok || !response.body) {
     const j = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(j?.error ?? "تعذر الاتصال بمحرك التدقيق.");
+    const msg = j?.error ?? "تعذر الاتصال بمحرك التدقيق.";
+    throw response.status >= 500 || response.status === 0 ? new RetriableError(msg) : new Error(msg);
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   for (;;) {
-    const { done, value } = await reader.read();
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      chunk = await reader.read();
+    } catch {
+      throw new RetriableError("انقطع الاتصال بالخادم أثناء تنفيذ هذا الجزء.");
+    }
+    const { done, value } = chunk;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
@@ -114,7 +127,7 @@ async function runAuditPart(config: ReviewConfig, documents: ParsedDocument[], k
       if (message.type === "result") return message.data.partial;
     }
   }
-  throw new Error("انقطع الاتصال قبل اكتمال التقرير. أعد المحاولة.");
+  throw new RetriableError("انقطع الاتصال قبل وصول نتيجة هذا الجزء.");
 }
 
 function Home() {
@@ -133,8 +146,22 @@ function Home() {
   const [dragOver, setDragOver] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const inputRef = useRef<HTMLInputElement>(null);
+  const [caseId, setCaseId] = useState<string | null>(null);
+  const [parts, setParts] = useState<PartState[]>([]);
+  const [docs, setDocs] = useState<ParsedDocument[] | null>(null);
+  const [runConfig, setRunConfig] = useState<ReviewConfig | null>(null);
+  const [cloudWarning, setCloudWarning] = useState<string | null>(null);
+  const [caseStatus, setCaseStatus] = useState<string | null>(null);
 
   useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const openId = q.get("case");
+    const copyId = q.get("copy");
+    if (openId || copyId) {
+      window.history.replaceState(null, "", "/");
+      void openCase((openId ?? copyId)!, { copy: !!copyId, edit: q.get("edit") === "1" });
+      return;
+    }
     try {
       const raw = localStorage.getItem(SAVED_REPORT_KEY);
       if (!raw) return;
@@ -143,23 +170,117 @@ function Home() {
       setResult({ ...saved.result, report: normalizeReport(saved.result.report) });
       setFileInfo(saved.fileInfo ?? null);
       setReportSections({ ...DEFAULT_REPORT_SECTIONS, ...(saved.reportSections ?? {}) });
+      setCaseId(saved.caseId ?? null);
       setRestored(true);
+      // السجل الدائم هو المصدر الرئيسي؛ النسخة المحلية احتياط سريع
+      if (saved.caseId) void openCase(saved.caseId, { silent: true });
     } catch {
       /* corrupted entry — ignore */
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** فتح مراجعة من الأرشيف: التقرير، الأقسام، وحالة الأجزاء */
+  async function openCase(id: string, opts: { copy?: boolean; edit?: boolean; silent?: boolean } = {}) {
+    setError(null);
+    try {
+      const { case: c, parts: stored } = await loadReviewCase(id);
+      const cfg = { ...defaultReviewConfig(), ...c.review_config };
+      if (opts.copy) {
+        setConfig(cfg);
+        setCloudWarning("تم نسخ إعدادات المراجعة السابقة — اختر ملف الخطة لبدء مراجعة جديدة بنفس الإعدادات.");
+        return;
+      }
+      const ps = initialParts(partsForReviewType(cfg.review_type)).map((p) => {
+        const s = stored.find((x) => x.part_key === p.key);
+        return s ? { ...p, status: s.status === "running" ? ("failed" as const) : s.status, attempts: s.attempts, error: s.status === "running" ? "توقف التنفيذ قبل اكتماله." : (s.error_message ?? undefined), result: (s.result_json ?? undefined) as PartState["result"] } : p;
+      });
+      setCaseId(id);
+      setCaseStatus(c.status);
+      setRunConfig(cfg);
+      setConfig(cfg);
+      setParts(ps);
+      setDocs(null);
+      setFileInfo({ name: c.source_file_name, textLength: 0 });
+      setReportSections({ ...DEFAULT_REPORT_SECTIONS, ...(c.report_sections ?? {}) });
+      const built = c.report_json ? { report: normalizeReport(c.report_json), partial: buildFromParts(ps, cfg)?.partial } : buildFromParts(ps, cfg);
+      setResult(built);
+      setStage("idle");
+      if (opts.edit && built) setEditing(true);
+    } catch (e) {
+      if (opts.silent) return;
+      setError(e instanceof Error ? `تعذر فتح المراجعة: ${e.message}` : "تعذر فتح المراجعة.");
+    }
+  }
 
   useEffect(() => {
     if (!result) return;
     try {
-      localStorage.setItem(SAVED_REPORT_KEY, JSON.stringify({ result, fileInfo, reportSections }));
+      localStorage.setItem(SAVED_REPORT_KEY, JSON.stringify({ result, fileInfo, reportSections, caseId }));
     } catch {
       /* quota exceeded — ignore */
     }
-  }, [result, fileInfo, reportSections]);
+  }, [result, fileInfo, reportSections, caseId]);
+
+  // حفظ اختيارات الأقسام في السجل الدائم
+  const sectionsLoaded = useRef(false);
+  useEffect(() => {
+    if (!caseId || !result) return;
+    if (!sectionsLoaded.current) {
+      sectionsLoaded.current = true;
+      return;
+    }
+    const t = setTimeout(() => void updateReviewCase(caseId, { report_sections: reportSections }).catch(() => undefined), 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportSections]);
+
+  /** تشغيل/استكمال الأجزاء ثم بناء التقرير (كاملاً أو جزئياً) وحفظه */
+  async function execute(cfg: ReviewConfig, documents: ParsedDocument[], start: PartState[], id: string | null, only?: string[]) {
+    setStage("auditing");
+    setParts(start);
+    const final = await runParts({
+      parts: start,
+      only,
+      run: (keys) => runAuditPart(cfg, documents, keys),
+      store: id ? { save: (key, status, extra) => saveReviewPart(id, key, status, extra) } : null,
+      onUpdate: (ps) => {
+        setParts(ps);
+        setProgress({ done: ps.filter((p) => p.status === "completed").length, total: ps.length });
+      },
+    });
+    const status = caseStatusFor(final);
+    setCaseStatus(status);
+    const built = buildFromParts(final, cfg);
+    setResult(built);
+    if (status === "completed" && id) dropCaseDocuments(id);
+    if (id) {
+      await updateReviewCase(id, {
+        status,
+        ...(built ? { report_json: built.report, review_decision: built.report.review_decision, learner_name: built.report.student_info.student_name || null } : {}),
+      }).catch(() => setCloudWarning("تعذر تحديث السجل السحابي — التقرير محفوظ محلياً على هذا الجهاز."));
+    }
+    setStage(built ? "idle" : "configuring");
+    if (!built) setError("تعذر تنفيذ جميع أجزاء المراجعة. يمكنك استكمال المراجعة دون إعادة ما اكتمل.");
+  }
+
+  async function resume(only?: string[]) {
+    if (!runConfig) return;
+    const d = docs ?? (caseId ? cachedCaseDocuments(caseId) : null);
+    if (!d) {
+      setError("نص الخطة غير متوفر على هذا الجهاز لاستكمال المراجعة — ابدأ مراجعة جديدة بنفس الملف.");
+      return;
+    }
+    setError(null);
+    setDocs(d);
+    await execute(runConfig, d, parts, caseId, only);
+  }
 
   function chooseFile(file: File) {
     setError(null);
+    setCaseId(null);
+    setParts([]);
+    setCaseStatus(null);
     setResult(null);
     setRestored(false);
     setEditing(false);
@@ -189,11 +310,27 @@ function Home() {
         ) as ReviewConfig["sources"],
       };
       setFileInfo({ name: planFile.name, textLength: docs[0]!.text.length });
-      setStage("auditing");
-      const res = await runAudit(effective, docs, (d, t) => setProgress({ done: d, total: t }));
       setReportSections(DEFAULT_REPORT_SECTIONS);
-      setResult(res);
-      setStage("idle");
+      const start = initialParts(partsForReviewType(effective.review_type));
+      let id: string | null = null;
+      try {
+        id = await createReviewCase({
+          source_file_name: planFile.name,
+          review_type: effective.review_type,
+          review_config: effective,
+          report_sections: DEFAULT_REPORT_SECTIONS,
+          part_keys: start.map((p) => p.key),
+        });
+        cacheCaseDocuments(id, docs);
+        setCloudWarning(null);
+      } catch {
+        setCloudWarning("الحفظ السحابي غير متاح لهذه الجلسة — يُحفظ التقرير محلياً على هذا الجهاز فقط.");
+      }
+      sectionsLoaded.current = false;
+      setCaseId(id);
+      setDocs(docs);
+      setRunConfig(effective);
+      await execute(effective, docs, start, id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "حدث خطأ غير متوقع.");
       setStage("configuring");
@@ -201,6 +338,10 @@ function Home() {
   }
 
   function reset() {
+    setCaseId(null);
+    setParts([]);
+    setDocs(null);
+    setCaseStatus(null);
     setResult(null);
     setFileInfo(null);
     setError(null);
@@ -236,8 +377,26 @@ function Home() {
               <p className="text-xs text-muted-foreground">مراجعة أولية وفق مصفوفة الجودة — يراجعها المشرف ويعدلها ويعتمدها</p>
             </div>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link to="/reviews" className={btn}>
+              <Archive className="h-4 w-4" /> المراجعات السابقة
+            </Link>
+          </div>
           {result && (
             <div className="flex flex-wrap items-center gap-2">
+              {caseId && !result.partial && (
+                <button
+                  disabled={caseStatus === "approved"}
+                  onClick={() =>
+                    void updateReviewCase(caseId, { status: "approved", report_json: result.report, review_decision: result.report.review_decision })
+                      .then(() => setCaseStatus("approved"))
+                      .catch(() => setCloudWarning("تعذر تسجيل الاعتماد سحابياً."))
+                  }
+                  className={btn}
+                >
+                  <CheckCircle2 className="h-4 w-4" /> {caseStatus === "approved" ? "معتمد" : "اعتماد التقرير"}
+                </button>
+              )}
               <button onClick={() => setEditing(true)} className={btn}>
                 <Pencil className="h-4 w-4" /> تعديل التقرير
               </button>
@@ -336,8 +495,23 @@ function Home() {
           />
         )}
 
+        {cloudWarning && (
+          <div className="mb-4 rounded-xl border border-border bg-muted/50 p-3 text-center text-xs text-muted-foreground print:hidden">{cloudWarning}</div>
+        )}
+        {parts.length > 0 && (stage === "auditing" || parts.some((p) => p.status !== "completed")) && (
+          <PartsPanel parts={parts} busy={busy} onResume={() => void resume()} onRetry={(k) => void resume([k])} />
+        )}
+        {!result && stage === "idle" && parts.length > 0 && error && (
+          <div className="mb-4 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
+        )}
+
         {result && (
           <div className="space-y-6">
+            {result.partial && (
+              <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-center text-sm font-semibold text-destructive">
+                تقرير جزئي — بعض أقسام المراجعة لم تكتمل: {result.partial.join("، ")}
+              </div>
+            )}
             {restored && (
               <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 text-center text-xs text-muted-foreground print:hidden">
                 تمت استعادة آخر تقرير محفوظ تلقائياً — اضغط «مستند جديد» لبدء مراجعة جديدة.
@@ -376,6 +550,7 @@ function Home() {
           onSave={(r) => {
             setResult({ ...result, report: r });
             setEditing(false);
+            if (caseId) void saveEditedReport(caseId, r).catch(() => setCloudWarning("تعذر حفظ التعديلات سحابياً — محفوظة محلياً على هذا الجهاز."));
           }}
         />
       )}
@@ -677,5 +852,48 @@ function AuditReportView({ report, fileInfo, reportSections }: { report: IepAudi
         </section>
       ))}
     </div>
+  );
+}
+
+function PartsPanel({ parts, busy, onResume, onRetry }: { parts: PartState[]; busy: boolean; onResume: () => void; onRetry: (key: string) => void }) {
+  const done = parts.filter((p) => p.status === "completed").length;
+  const incomplete = parts.some((p) => p.status === "failed" || p.status === "pending");
+  return (
+    <section className="mx-auto mb-6 max-w-4xl space-y-3 rounded-2xl border border-border bg-card p-5 print:hidden">
+      <h3 className="font-semibold">أجزاء المراجعة</h3>
+      <ul className="space-y-2">
+        {parts.map((p) => (
+          <li key={p.key} className="flex flex-wrap items-center gap-2 text-sm">
+            {p.status === "completed" ? (
+              <CheckCircle2 className="h-4 w-4 text-primary" />
+            ) : p.status === "failed" ? (
+              <XCircle className="h-4 w-4 text-destructive" />
+            ) : p.status === "running" ? (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            ) : (
+              <span className="h-4 w-4 rounded-full border border-border" />
+            )}
+            <span className="font-medium">{p.label}</span>
+            <span className="text-xs text-muted-foreground">— {PART_STATUS_LABELS[p.status]}{p.attempts > 1 ? ` (محاولات: ${p.attempts})` : ""}</span>
+            {p.status === "failed" && p.error && <span className="text-xs text-destructive">{p.error}</span>}
+            {p.status === "failed" && !busy && (
+              <button onClick={() => onRetry(p.key)} className="mr-auto inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs hover:bg-muted">
+                <RotateCw className="h-3 w-3" /> إعادة هذا الجزء
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {!busy && incomplete && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+          <p className="text-sm">
+            اكتملت {done} من {parts.length} أجزاء. يمكنك استكمال الجزء المتوقف دون إعادة الأجزاء المكتملة.
+          </p>
+          <button onClick={onResume} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
+            <RotateCw className="h-4 w-4" /> استكمال المراجعة
+          </button>
+        </div>
+      )}
+    </section>
   );
 }

@@ -19,3 +19,5 @@
 - A review runs as parallel partial requests (`partsForReviewType`), each well under the ~3-minute request ceiling; the browser merges parts and applies `applyReviewerParity` — keep each part's key set small enough to finish in time.
 - Functional activity contexts live in `src/lib/functional-context-registry.ts`; it is a reviewer reference only — potential contexts never count as present and never generate goals.
 - Goal-review counts, transition coverage percentage and the decision brief are computed in code (`goalReviewCounts`, `transitionStats`), never taken from model text.
+- Review archive (`review_cases`, `review_parts`) is server-only: RLS on with no policies; `/api/reviews` uses the admin client scoped by a sha256 of a per-browser owner key — never add public/anon policies for review data.
+- Review parts run through `runParts` (`src/lib/review-orchestrator.ts`): allSettled, one retry only for network errors, resume reruns only non-completed parts; plan text for resume is cached in localStorage per case, not stored in the archive.
