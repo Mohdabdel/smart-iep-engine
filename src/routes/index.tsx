@@ -38,7 +38,7 @@ export const Route = createFileRoute("/")({
   }),
 });
 
-type AuditResult = { report: IepAuditReport; parity: { bannedStripped: number; criterionFixes: number } };
+type AuditResult = { report: IepAuditReport; parity: { bannedWordsStripped: number; singleCriterionFixes: number } };
 type Stage = "idle" | "parsing" | "auditing";
 
 const SAVED_REPORT_KEY = "iep-audit:last-report";
