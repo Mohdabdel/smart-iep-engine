@@ -172,6 +172,8 @@ function Home() {
       setReportSections({ ...DEFAULT_REPORT_SECTIONS, ...(saved.reportSections ?? {}) });
       setCaseId(saved.caseId ?? null);
       setRestored(true);
+      // السجل الدائم هو المصدر الرئيسي؛ النسخة المحلية احتياط سريع
+      if (saved.caseId) void openCase(saved.caseId, { silent: true });
     } catch {
       /* corrupted entry — ignore */
     }
@@ -179,7 +181,7 @@ function Home() {
   }, []);
 
   /** فتح مراجعة من الأرشيف: التقرير، الأقسام، وحالة الأجزاء */
-  async function openCase(id: string, opts: { copy?: boolean; edit?: boolean } = {}) {
+  async function openCase(id: string, opts: { copy?: boolean; edit?: boolean; silent?: boolean } = {}) {
     setError(null);
     try {
       const { case: c, parts: stored } = await loadReviewCase(id);
@@ -203,10 +205,10 @@ function Home() {
       setReportSections({ ...DEFAULT_REPORT_SECTIONS, ...(c.report_sections ?? {}) });
       const built = c.report_json ? { report: normalizeReport(c.report_json), partial: buildFromParts(ps, cfg)?.partial } : buildFromParts(ps, cfg);
       setResult(built);
-      setRestored(false);
       setStage("idle");
       if (opts.edit && built) setEditing(true);
     } catch (e) {
+      if (opts.silent) return;
       setError(e instanceof Error ? `تعذر فتح المراجعة: ${e.message}` : "تعذر فتح المراجعة.");
     }
   }
