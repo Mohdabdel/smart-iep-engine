@@ -14,7 +14,110 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      review_cases: {
+        Row: {
+          approved_at: string | null
+          completed_at: string | null
+          created_at: string
+          id: string
+          learner_name: string | null
+          owner_key_hash: string
+          report_json: Json | null
+          report_schema_version: number
+          report_sections: Json
+          review_config: Json
+          review_decision: string | null
+          review_spec_version: string
+          review_type: string
+          source_file_name: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          approved_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          learner_name?: string | null
+          owner_key_hash: string
+          report_json?: Json | null
+          report_schema_version?: number
+          report_sections?: Json
+          review_config?: Json
+          review_decision?: string | null
+          review_spec_version?: string
+          review_type: string
+          source_file_name?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          approved_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          learner_name?: string | null
+          owner_key_hash?: string
+          report_json?: Json | null
+          report_schema_version?: number
+          report_sections?: Json
+          review_config?: Json
+          review_decision?: string | null
+          review_spec_version?: string
+          review_type?: string
+          source_file_name?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      review_parts: {
+        Row: {
+          attempts: number
+          completed_at: string | null
+          error_message: string | null
+          id: string
+          part_key: string
+          result_json: Json | null
+          review_case_id: string
+          started_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          completed_at?: string | null
+          error_message?: string | null
+          id?: string
+          part_key: string
+          result_json?: Json | null
+          review_case_id: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          completed_at?: string | null
+          error_message?: string | null
+          id?: string
+          part_key?: string
+          result_json?: Json | null
+          review_case_id?: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_parts_review_case_id_fkey"
+            columns: ["review_case_id"]
+            isOneToOne: false
+            referencedRelation: "review_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
