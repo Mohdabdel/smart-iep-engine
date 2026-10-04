@@ -9,8 +9,10 @@
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
 
-- IEP audit runs through Lovable AI Gateway `openai/gpt-6-astra` on /v1/responses via `Output.object` with a strict JSON schema (`src/lib/iep-schema.ts`); the Master System Prompt v2.0 lives in `src/lib/iep-audit.server.ts` — keep prompts, model calls and parity rules server-side.
-- Deterministic parity is enforced in code after generation (`applyUnifiedRuleParity`): banned implied words stripped and single-criterion rule applied to revised goals, so both chat and app outputs converge on the same decisions.
+- IEP audit runs through Lovable AI Gateway `openai/gpt-6-astra` on /v1/responses via `Output.object` with a strict JSON schema (`src/lib/iep-schema.ts`); the reviewer system prompt lives in `src/lib/iep-audit.server.ts` — keep prompts, model calls and parity rules server-side.
+- Criteria live in one registry (`src/lib/criteria-registry.ts`) shared by the scope UI, the prompt and post-generation enforcement; never hardcode criteria in the prompt only.
+- Reviewer rules that must not depend on the model are enforced in code after generation (`src/lib/iep-parity.ts`): out-of-scope criteria dropped, reviewer attestations applied, implied words/single criterion, no automatic safety items, gates block direct approval. Never phrase-match performance conditions.
+- Review scope (what the engine reviews) and report sections (what is printed/exported) are separate; all report content flows through `buildReportBlocks` so screen, print, Word and JSON stay aligned.
 - Documents (PDF/DOCX/TXT) are parsed client-side in `src/lib/parse-document.ts` (pdfjs-dist + mammoth); the server only receives extracted text.
 - Report export sections use one shared section-ID contract for UI selection, print visibility, DOCX composition, and JSON filtering so all formats stay aligned.
 - The last audit report (with manual edits and section choices) is kept in browser localStorage and restored on load — a preview/page reload must not wipe a finished report; cleared by «مستند جديد» or a new upload.
