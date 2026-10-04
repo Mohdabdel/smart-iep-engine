@@ -148,7 +148,8 @@ export async function runIepAudit(initialRunId: string | undefined, documentName
       openai: {
         store: false,
         forceReasoning: true,
-        reasoningEffort: "medium",
+        // "low" keeps long plans well under the ~3-minute request ceiling
+        reasoningEffort: "low",
         reasoningSummary: "auto",
         include: ["reasoning.encrypted_content"],
       },
