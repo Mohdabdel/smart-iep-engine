@@ -87,9 +87,9 @@ export function ReportEditor({
           </div>
 
           <div className={section}>
-            <h3 className="font-semibold">المستوى الأول — التقييم الرقمي للمعايير الـ 24</h3>
+            <h3 className="font-semibold">المستوى الأول — التقييم الرقمي للبنود الفعّالة (19)</h3>
             <div className="grid gap-3 sm:grid-cols-3">
-              <Field label="النتيجة الإجمالية (من 24)"><input type="number" min={0} max={24} className={inputCls} value={l1.total_score} onChange={(e) => setL1({ total_score: Number(e.target.value) })} /></Field>
+              <Field label="النتيجة الإجمالية (من 19)"><input type="number" min={0} max={19} className={inputCls} value={l1.total_score} onChange={(e) => setL1({ total_score: Number(e.target.value) })} /></Field>
               <Field label="نسبة الاتساق %"><input type="number" min={0} max={100} className={inputCls} value={l1.compliance_percent} onChange={(e) => setL1({ compliance_percent: Number(e.target.value) })} /></Field>
               <Field label="قرار الاعتماد">
                 <select className={inputCls} value={l1.accreditation_decision} onChange={(e) => setL1({ accreditation_decision: e.target.value as typeof l1.accreditation_decision })}>
