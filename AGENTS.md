@@ -16,3 +16,4 @@
 - Documents (PDF/DOCX/TXT) are parsed client-side in `src/lib/parse-document.ts` (pdfjs-dist + mammoth); the server only receives extracted text.
 - Report export sections use one shared section-ID contract for UI selection, print visibility, DOCX composition, and JSON filtering so all formats stay aligned.
 - The last audit report (with manual edits and section choices) is kept in browser localStorage and restored on load — a preview/page reload must not wipe a finished report; cleared by «مستند جديد» or a new upload.
+- A review runs as parallel partial requests (`partsForReviewType`), each well under the ~3-minute request ceiling; the browser merges parts and applies `applyReviewerParity` — keep each part's key set small enough to finish in time.
