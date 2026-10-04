@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiAuditRouteImport } from './routes/api/audit'
+import { Route as ApiReviewsRouteImport } from './routes/api/reviews'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +23,40 @@ const ApiAuditRoute = ApiAuditRouteImport.update({
   path: '/api/audit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiReviewsRoute = ApiReviewsRouteImport.update({
+  id: '/api/reviews',
+  path: '/api/reviews',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/audit': typeof ApiAuditRoute
+  '/api/reviews': typeof ApiReviewsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/audit': typeof ApiAuditRoute
+  '/api/reviews': typeof ApiReviewsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/audit': typeof ApiAuditRoute
+  '/api/reviews': typeof ApiReviewsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/audit'
+  fullPaths: '/' | '/api/audit' | '/api/reviews'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/audit'
-  id: '__root__' | '/' | '/api/audit'
+  to: '/' | '/api/audit' | '/api/reviews'
+  id: '__root__' | '/' | '/api/audit' | '/api/reviews'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiAuditRoute: typeof ApiAuditRoute
+  ApiReviewsRoute: typeof ApiReviewsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuditRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/reviews': {
+      id: '/api/reviews'
+      path: '/api/reviews'
+      fullPath: '/api/reviews'
+      preLoaderRoute: typeof ApiReviewsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiAuditRoute: ApiAuditRoute,
+  ApiReviewsRoute: ApiReviewsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
