@@ -1,10 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 
+const sourceState = z.enum(["attached", "external_verified", "unavailable"]);
 const inputSchema = z.object({
-  documentName: z.string().min(1),
-  documentText: z.string().min(40),
-  scope: z.enum(["both", "level1", "level2"]).default("both"),
+  config: z.object({
+    review_type: z.enum(["full", "quality", "supervisory", "goals", "plaafp", "post_correction", "compare_previous"]),
+    sources: z.record(z.string(), sourceState),
+    criteria: z.record(z.string(), z.object({ state: z.enum(["active", "frozen", "na"]), reason: z.string().optional() })),
+  }),
+  documents: z
+    .array(z.object({ source: z.string(), name: z.string().min(1), text: z.string() }))
+    .min(1)
+    .refine((docs) => docs.some((d) => d.source === "current_plan" && d.text.length >= 40), "نص الخطة الحالية قصير جداً أو فشل استخراجه."),
 });
 
 // Streams NDJSON keepalive pings while the long audit runs, then the final result.
@@ -14,9 +21,10 @@ export const Route = createFileRoute("/api/audit")({
       POST: async ({ request }) => {
         const parsedInput = inputSchema.safeParse(await request.json().catch(() => null));
         if (!parsedInput.success) {
-          return Response.json({ error: "نص المستند قصير جداً أو فشل استخراجه." }, { status: 400 });
+          return Response.json({ error: "نص المستند قصير جداً أو فشل استخراجه، أو إعدادات المراجعة غير صالحة." }, { status: 400 });
         }
-        const { applyUnifiedRuleParity, runIepAudit } = await import("@/lib/iep-audit.server");
+        const { runIepAudit } = await import("@/lib/iep-audit.server");
+        const { applyReviewerParity } = await import("@/lib/iep-parity");
         const enc = new TextEncoder();
         let closed = false;
         let ping: ReturnType<typeof setInterval> | undefined;
@@ -36,23 +44,10 @@ export const Route = createFileRoute("/api/audit")({
             };
             ping = setInterval(() => send({ type: "ping" }), 5000);
             try {
-              const report = await runIepAudit(
-                undefined,
-                parsedInput.data.documentName,
-                parsedInput.data.documentText,
-                parsedInput.data.scope,
-              );
-              const parity = applyUnifiedRuleParity(report);
-              send({
-                type: "result",
-                data: {
-                  report: parity.report,
-                  parity: {
-                    bannedWordsStripped: parity.bannedStripped,
-                    singleCriterionFixes: parity.criterionFixes,
-                  },
-                },
-              });
+              const config = parsedInput.data.config as import("@/lib/criteria-registry").ReviewConfig;
+              const report = await runIepAudit(config, parsedInput.data.documents);
+              const parity = applyReviewerParity(report, config);
+              send({ type: "result", data: { report: parity.report, parity: parity.stats } });
             } catch (e) {
               console.error("[audit]", e);
               send({ type: "error", message: e instanceof Error ? e.message : "فشل التدقيق." });
@@ -70,10 +65,7 @@ export const Route = createFileRoute("/api/audit")({
           },
         });
         return new Response(stream, {
-          headers: {
-            "Content-Type": "application/x-ndjson; charset=utf-8",
-            "Cache-Control": "no-cache, no-transform",
-          },
+          headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform" },
         });
       },
     },
