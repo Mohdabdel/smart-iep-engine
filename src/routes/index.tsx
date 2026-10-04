@@ -30,8 +30,8 @@ import {
   type EvidenceSourceId,
   type ReviewConfig,
 } from "@/lib/criteria-registry";
-import { FINDING_STATUSES, type IepAuditReport } from "@/lib/iep-schema";
-import { statusCounts, type ParityStats } from "@/lib/iep-parity";
+import { FINDING_STATUSES, partsForReviewType, toReport, type IepAuditReport, type ModelKey, type ModelOutput } from "@/lib/iep-schema";
+import { applyReviewerParity, statusCounts, type ParityStats } from "@/lib/iep-parity";
 import {
   DEFAULT_REPORT_SECTIONS,
   REPORT_SECTION_OPTIONS,
@@ -65,11 +65,29 @@ type FileInfo = { name: string; textLength: number };
 const SAVED_REPORT_KEY = "iep-audit:last-report";
 type SavedReport = { result: AuditResult; fileInfo: FileInfo | null; reportSections: ReportSections };
 
-async function runAudit(config: ReviewConfig, documents: ParsedDocument[]): Promise<AuditResult> {
+/** يشغّل أجزاء المراجعة بالتوازي (كل جزء أقصر من سقف زمن الطلب) ثم يدمجها ويطبق قواعد المراجع */
+async function runAudit(config: ReviewConfig, documents: ParsedDocument[], onProgress: (done: number, total: number) => void): Promise<AuditResult> {
+  const parts = partsForReviewType(config.review_type);
+  let done = 0;
+  onProgress(0, parts.length);
+  const partials = await Promise.all(
+    parts.map(async (keys) => {
+      const p = await runAuditPart(config, documents, keys);
+      done += 1;
+      onProgress(done, parts.length);
+      return p;
+    }),
+  );
+  const merged = Object.assign({}, ...partials) as Partial<ModelOutput>;
+  const parity = applyReviewerParity(toReport(merged, config), config);
+  return { report: parity.report, parity: parity.stats };
+}
+
+async function runAuditPart(config: ReviewConfig, documents: ParsedDocument[], keys: ModelKey[]): Promise<Partial<ModelOutput>> {
   const response = await fetch("/api/audit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ config, documents }),
+    body: JSON.stringify({ config, documents, keys }),
   });
   if (!response.ok || !response.body) {
     const j = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -87,11 +105,11 @@ async function runAudit(config: ReviewConfig, documents: ParsedDocument[]): Prom
     for (const line of lines) {
       if (!line.trim()) continue;
       const message = JSON.parse(line) as
-        | { type: "result"; data: { report: IepAuditReport; parity: ParityStats } }
+        | { type: "result"; data: { partial: Partial<ModelOutput> } }
         | { type: "error"; message?: string }
         | { type: "ping" };
       if (message.type === "error") throw new Error(message.message ?? "فشل التدقيق.");
-      if (message.type === "result") return { report: message.data.report, parity: message.data.parity };
+      if (message.type === "result") return message.data.partial;
     }
   }
   throw new Error("انقطع الاتصال قبل اكتمال التقرير. أعد المحاولة.");
@@ -111,6 +129,7 @@ function Home() {
   const [editing, setEditing] = useState(false);
   const [exporting, setExporting] = useState<null | "docx" | "json">(null);
   const [dragOver, setDragOver] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -169,7 +188,7 @@ function Home() {
       };
       setFileInfo({ name: planFile.name, textLength: docs[0]!.text.length });
       setStage("auditing");
-      const res = await runAudit(effective, docs);
+      const res = await runAudit(effective, docs, (d, t) => setProgress({ done: d, total: t }));
       setReportSections(DEFAULT_REPORT_SECTIONS);
       setResult(res);
       setStage("idle");
@@ -308,6 +327,7 @@ function Home() {
             setExtraFiles={setExtraFiles}
             busy={busy}
             stage={stage}
+            progress={progress}
             error={error}
             onStart={startAudit}
             onCancel={reset}
@@ -369,6 +389,7 @@ function ScopeConfigurator(props: {
   setExtraFiles: (f: Partial<Record<EvidenceSourceId, File>>) => void;
   busy: boolean;
   stage: Stage;
+  progress: { done: number; total: number };
   error: string | null;
   onStart: () => void;
   onCancel: () => void;
@@ -533,7 +554,7 @@ function ScopeConfigurator(props: {
 
       <div className="flex items-center justify-end gap-3">
         {busy && (
-          <p className="text-xs text-muted-foreground">{props.stage === "parsing" ? "جارٍ قراءة المستندات…" : "جارٍ تنفيذ المراجعة — قد تستغرق حتى دقيقتين أو أكثر، لا تغلق الصفحة."}</p>
+          <p className="text-xs text-muted-foreground">{props.stage === "parsing" ? "جارٍ قراءة المستندات…" : `جارٍ تنفيذ المراجعة على ${props.progress.total} أجزاء متوازية — اكتمل ${props.progress.done} — لا تغلق الصفحة.`}</p>
         )}
         <button
           onClick={props.onStart}
