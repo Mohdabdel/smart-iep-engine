@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ReviewsRouteImport } from './routes/reviews'
 import { Route as ApiAuditRouteImport } from './routes/api/audit'
 import { Route as ApiReviewsRouteImport } from './routes/api/reviews'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReviewsRoute = ReviewsRouteImport.update({
+  id: '/reviews',
+  path: '/reviews',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuditRoute = ApiAuditRouteImport.update({
@@ -31,30 +37,34 @@ const ApiReviewsRoute = ApiReviewsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/reviews': typeof ReviewsRoute
   '/api/audit': typeof ApiAuditRoute
   '/api/reviews': typeof ApiReviewsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/reviews': typeof ReviewsRoute
   '/api/audit': typeof ApiAuditRoute
   '/api/reviews': typeof ApiReviewsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/reviews': typeof ReviewsRoute
   '/api/audit': typeof ApiAuditRoute
   '/api/reviews': typeof ApiReviewsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/audit' | '/api/reviews'
+  fullPaths: '/' | '/reviews' | '/api/audit' | '/api/reviews'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/audit' | '/api/reviews'
-  id: '__root__' | '/' | '/api/audit' | '/api/reviews'
+  to: '/' | '/reviews' | '/api/audit' | '/api/reviews'
+  id: '__root__' | '/' | '/reviews' | '/api/audit' | '/api/reviews'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ReviewsRoute: typeof ReviewsRoute
   ApiAuditRoute: typeof ApiAuditRoute
   ApiReviewsRoute: typeof ApiReviewsRoute
 }
@@ -66,6 +76,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reviews': {
+      id: '/reviews'
+      path: '/reviews'
+      fullPath: '/reviews'
+      preLoaderRoute: typeof ReviewsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/audit': {
@@ -87,6 +104,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ReviewsRoute: ReviewsRoute,
   ApiAuditRoute: ApiAuditRoute,
   ApiReviewsRoute: ApiReviewsRoute,
 }

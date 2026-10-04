@@ -37,7 +37,7 @@ export async function runParts(opts: {
   run: (keys: ModelKey[]) => Promise<Partial<ModelOutput>>;
   store?: PartStore | null;
   onUpdate: (parts: PartState[]) => void;
-  only?: string[];
+  only?: string[] | undefined;
   backoffMs?: (attempt: number) => number;
 }): Promise<PartState[]> {
   let parts = opts.parts.map((p) => ({ ...p }));
