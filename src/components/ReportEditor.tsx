@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { Plus, Trash2, X } from "lucide-react";
-import { IEP_DOMAINS, REVISION_CATEGORIES, type IepAuditReport } from "@/lib/iep-schema";
+import {
+  ACCREDITATION_DECISIONS,
+  IEP_DOMAINS,
+  PILLAR_MAX_SCORES,
+  REVISION_CATEGORIES,
+  type IepAuditReport,
+} from "@/lib/iep-schema";
+import { PILLAR_LABELS } from "@/lib/export-report";
 
 const inputCls =
   "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-ring";
@@ -28,31 +35,27 @@ export function ReportEditor({
   onClose: () => void;
 }) {
   const [d, setD] = useState<IepAuditReport>(() => structuredClone(report));
-  const s = d.micro_audit_summary;
-  const m = d.macro_plan_engineering;
-  const q = m.horizontal_analysis_6_questions;
-  const c = d.checklist_24_standards_status;
+  const s = d.student_info;
+  const l1 = d.level1_quality_standards;
+  const vision = d.level2_supervisory_review.overall_vision;
+  const coverage = d.level2_supervisory_review.needs_coverage;
 
-  const setSummary = (patch: Partial<typeof s>) => setD({ ...d, micro_audit_summary: { ...s, ...patch } });
-  const setMacro = (patch: Partial<typeof m>) => setD({ ...d, macro_plan_engineering: { ...m, ...patch } });
-  const setQ = (k: keyof typeof q, v: string) => setMacro({ horizontal_analysis_6_questions: { ...q, [k]: v } });
+  const setStudent = (patch: Partial<typeof s>) => setD({ ...d, student_info: { ...s, ...patch } });
+  const setL1 = (patch: Partial<typeof l1>) => setD({ ...d, level1_quality_standards: { ...l1, ...patch } });
+  const setPillar = (key: keyof typeof PILLAR_MAX_SCORES, patch: Partial<(typeof l1)[typeof key]>) =>
+    setL1({ [key]: { ...l1[key], ...patch } } as Partial<typeof l1>);
+  const setVision = (k: keyof typeof vision, v: string) =>
+    setD({ ...d, level2_supervisory_review: { ...d.level2_supervisory_review, overall_vision: { ...vision, [k]: v } } });
+  const setCoverage = (patch: Partial<typeof coverage>) =>
+    setD({ ...d, level2_supervisory_review: { ...d.level2_supervisory_review, needs_coverage: { ...coverage, ...patch } } });
   const setRev = (i: number, patch: Partial<IepAuditReport["revisions"][number]>) =>
     setD({ ...d, revisions: d.revisions.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
 
-  const qLabels: [keyof typeof q, string][] = [
-    ["q1_horizontal_bundling", "ترابط مجالات وأهداف الخطة — ترابط الأهداف"],
-    ["q2_cross_domain_integration", "ترابط مجالات وأهداف الخطة — ترابط المجالات"],
-    ["q6_scattered_goals_detected", "ترابط مجالات وأهداف الخطة — الأهداف غير المترابطة"],
-    ["q3_sequential_logic", "التسلسل المنطقي للخطة"],
-    ["q4_observable_life_impact", "الأثر المتوقع في حياة المتعلم"],
-    ["q5_post_graduation_readiness", "الجاهزية لما بعد التخرج"],
-  ];
-  const cLabels: [keyof typeof c, string][] = [
-    ["pillar_1_plaafp", "الركيزة 1: مستوى الأداء الحالي"],
-    ["pillar_2_smart_goals", "الركيزة 2: الأهداف القابلة للقياس"],
-    ["pillar_3_admin", "الركيزة 3: الجودة الإدارية"],
-    ["pillar_4_transition", "الركيزة 4: المواءمة الانتقالية"],
-    ["items_13_7_to_13_11_plan_engineering", "البنود 13-7 إلى 13-11"],
+  const visionLabels: [keyof typeof vision, string][] = [
+    ["horizontal_bundling", "الترابط الأفقي وسلاسل التعلم"],
+    ["cross_domain_integration", "التكامل بين الأهداف والمجالات"],
+    ["sequential_logic", "التسلسل المنطقي لمسار التدريب"],
+    ["scattered_goals", "رصد الأهداف المشتتة"],
   ];
 
   const section = "space-y-3 rounded-xl border border-border bg-card p-4";
@@ -74,25 +77,80 @@ export function ReportEditor({
 
         <div className="space-y-5 p-5">
           <div className={section}>
-            <h3 className="font-semibold">بيانات الطالب والملخص</h3>
+            <h3 className="font-semibold">بيانات الطالب</h3>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="اسم الطالب"><input className={inputCls} value={s.student_name} onChange={(e) => setSummary({ student_name: e.target.value })} /></Field>
-              <Field label="العمر"><input type="number" className={inputCls} value={s.age ?? ""} onChange={(e) => setSummary({ age: e.target.value === "" ? null : Number(e.target.value) })} /></Field>
-              <Field label="نوع الإعاقة"><input className={inputCls} value={s.disability_type} onChange={(e) => setSummary({ disability_type: e.target.value })} /></Field>
-              <Field label="درجة الجودة (من 100)"><input type="number" min={0} max={100} className={inputCls} value={s.quality_score_24_standards} onChange={(e) => setSummary({ quality_score_24_standards: Number(e.target.value) })} /></Field>
+              <Field label="اسم الطالب"><input className={inputCls} value={s.student_name} onChange={(e) => setStudent({ student_name: e.target.value })} /></Field>
+              <Field label="العمر"><input type="number" className={inputCls} value={s.age ?? ""} onChange={(e) => setStudent({ age: e.target.value === "" ? null : Number(e.target.value) })} /></Field>
+              <Field label="نوع الإعاقة"><input className={inputCls} value={s.disability_type} onChange={(e) => setStudent({ disability_type: e.target.value })} /></Field>
+              <Field label="المركز / المدرسة"><input className={inputCls} value={s.school_center} onChange={(e) => setStudent({ school_center: e.target.value })} /></Field>
             </div>
           </div>
 
           <div className={section}>
-            <h3 className="font-semibold">الرؤية العامة</h3>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="درجة التكامل %"><input type="number" min={0} max={100} className={inputCls} value={m.integration_score_percent} onChange={(e) => setMacro({ integration_score_percent: Number(e.target.value) })} /></Field>
-              <Field label="مسار المهارات المهنية"><input className={inputCls} value={m.target_functional_role} onChange={(e) => setMacro({ target_functional_role: e.target.value })} /></Field>
+            <h3 className="font-semibold">المستوى الأول — التقييم الرقمي للمعايير الـ 24</h3>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="النتيجة الإجمالية (من 24)"><input type="number" min={0} max={24} className={inputCls} value={l1.total_score} onChange={(e) => setL1({ total_score: Number(e.target.value) })} /></Field>
+              <Field label="نسبة الاتساق %"><input type="number" min={0} max={100} className={inputCls} value={l1.compliance_percent} onChange={(e) => setL1({ compliance_percent: Number(e.target.value) })} /></Field>
+              <Field label="قرار الاعتماد">
+                <select className={inputCls} value={l1.accreditation_decision} onChange={(e) => setL1({ accreditation_decision: e.target.value as typeof l1.accreditation_decision })}>
+                  {ACCREDITATION_DECISIONS.map((x) => <option key={x}>{x}</option>)}
+                </select>
+              </Field>
             </div>
-            {qLabels.map(([k, l]) => (
-              <Field key={k} label={l}><Area value={q[k]} onChange={(v) => setQ(k, v)} /></Field>
+            {PILLAR_LABELS.map(({ key, label }) => (
+              <div key={key} className="space-y-2 rounded-lg border border-border p-3">
+                <p className="text-sm font-semibold">{label}</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Field label={`الدرجة (من ${PILLAR_MAX_SCORES[key]})`}>
+                    <input type="number" min={0} max={PILLAR_MAX_SCORES[key]} className={inputCls} value={l1[key].score} onChange={(e) => setPillar(key, { score: Number(e.target.value) })} />
+                  </Field>
+                  <Field label="النسبة %">
+                    <input type="number" min={0} max={100} className={inputCls} value={l1[key].percent} onChange={(e) => setPillar(key, { percent: Number(e.target.value) })} />
+                  </Field>
+                </div>
+                <Field label="التعليق المختصر"><Area value={l1[key].comment} onChange={(v) => setPillar(key, { comment: v })} /></Field>
+              </div>
             ))}
-            <Field label="توصيات الرؤية العامة"><Area rows={3} value={m.macro_recommendation} onChange={(v) => setMacro({ macro_recommendation: v })} /></Field>
+          </div>
+
+          <div className={section}>
+            <h3 className="font-semibold">المستوى الثاني — الرؤية العامة للخطة</h3>
+            {visionLabels.map(([k, l]) => (
+              <Field key={k} label={l}><Area value={vision[k]} onChange={(v) => setVision(k, v)} /></Field>
+            ))}
+          </div>
+
+          <div className={section}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">مصفوفة تغطية الاحتياجات</h3>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" className="h-4 w-4 accent-primary" checked={coverage.all_covered} onChange={(e) => setCoverage({ all_covered: e.target.checked })} />
+                جميع الاحتياجات مغطاة
+              </label>
+            </div>
+            {coverage.uncovered_needs.map((n, i) => (
+              <div key={i} className="space-y-2 rounded-lg border border-border p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold">احتياج غير مغطى {i + 1}</span>
+                  <button onClick={() => setCoverage({ uncovered_needs: coverage.uncovered_needs.filter((_, j) => j !== i) })} aria-label="حذف الاحتياج" className="rounded p-1 text-destructive hover:bg-destructive/10">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+                <Field label="المجال">
+                  <select className={inputCls} value={n.domain} onChange={(e) => setCoverage({ uncovered_needs: coverage.uncovered_needs.map((x, j) => (j === i ? { ...x, domain: e.target.value as typeof x.domain } : x)) })}>
+                    {IEP_DOMAINS.map((x) => <option key={x}>{x}</option>)}
+                  </select>
+                </Field>
+                <Field label="الاحتياج"><Area value={n.need} onChange={(v) => setCoverage({ uncovered_needs: coverage.uncovered_needs.map((x, j) => (j === i ? { ...x, need: v } : x)) })} /></Field>
+                <Field label="الهدف المقترح"><Area value={n.suggested_goal} onChange={(v) => setCoverage({ uncovered_needs: coverage.uncovered_needs.map((x, j) => (j === i ? { ...x, suggested_goal: v } : x)) })} /></Field>
+              </div>
+            ))}
+            <button
+              onClick={() => setCoverage({ uncovered_needs: [...coverage.uncovered_needs, { need: "", domain: IEP_DOMAINS[0], suggested_goal: "" }] })}
+              className="inline-flex items-center gap-1 rounded-lg border border-input px-3 py-1.5 text-sm hover:bg-accent"
+            >
+              <Plus className="h-4 w-4" /> إضافة احتياج
+            </button>
           </div>
 
           <div className={section}>
@@ -127,7 +185,7 @@ export function ReportEditor({
                 </div>
                 <Field label="الهدف الأصلي"><Area value={r.original_goal} onChange={(v) => setRev(i, { original_goal: v })} /></Field>
                 <Field label="الهدف المعدل"><Area value={r.revised_goal} onChange={(v) => setRev(i, { revised_goal: v })} /></Field>
-                <Field label="سبب التعديل"><Area value={r.rationale} onChange={(v) => setRev(i, { rationale: v })} /></Field>
+                <Field label="سبب التعديل والقاعدة الفنية"><Area value={r.rationale} onChange={(v) => setRev(i, { rationale: v })} /></Field>
                 <Field label="المعايير المخالفة (افصل بفاصلة)">
                   <input className={inputCls} value={r.standards_violated.join("، ")} onChange={(e) => setRev(i, { standards_violated: e.target.value.split(/[،,]/).map((x) => x.trim()).filter(Boolean) })} />
                 </Field>
@@ -136,15 +194,8 @@ export function ReportEditor({
           </div>
 
           <div className={section}>
-            <h3 className="font-semibold">معايير الجودة الـ 24</h3>
-            {cLabels.map(([k, l]) => (
-              <Field key={k} label={l}><Area value={c[k]} onChange={(v) => setD({ ...d, checklist_24_standards_status: { ...c, [k]: v } })} /></Field>
-            ))}
-          </div>
-
-          <div className={section}>
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold">التوصيات</h3>
+              <h3 className="font-semibold">التوصيات الإشرافية</h3>
               <button onClick={() => setD({ ...d, recommendations: [...d.recommendations, ""] })} className="inline-flex items-center gap-1 rounded-lg border border-input px-3 py-1.5 text-sm hover:bg-accent">
                 <Plus className="h-4 w-4" /> إضافة توصية
               </button>

@@ -1,813 +1,549 @@
 import { createFileRoute } from "@tanstack/react-router";
-
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  AlertTriangle,
+  Award,
   CheckCircle2,
-  CheckSquare2,
-  CircleDashed,
+  ClipboardCheck,
   Download,
+  FileJson,
   FileText,
-  FileUp,
+  ListChecks,
   Loader2,
-  RotateCcw,
+  Map as MapIcon,
+  Pencil,
+  Printer,
   ShieldCheck,
   Sparkles,
-  Target,
+  Upload,
+  XCircle,
 } from "lucide-react";
-
-import { auditIep } from "@/lib/iep-audit.functions";
-import {
-  IEP_DOMAINS,
-  REVISION_CATEGORIES,
-  type IepAuditReport,
-} from "@/lib/iep-schema";
 import { extractTextFromFile } from "@/lib/parse-document";
-import {
-  DEFAULT_REPORT_SECTIONS,
-  REPORT_SECTION_OPTIONS,
-  exportDocx,
-  exportJson as exportJsonFile,
-  exportPdf,
-  type ReportSectionId,
-  type ReportSections,
-} from "@/lib/export-report";
+
+type ParsedDocument = { name: string; text: string };
+import { PILLAR_MAX_SCORES, REVISION_CATEGORIES, type IepAuditReport } from "@/lib/iep-schema";
+import { DEFAULT_REPORT_SECTIONS, PILLAR_LABELS, REPORT_SECTION_OPTIONS, exportDocx, exportJson, exportPdf, type ReportSections } from "@/lib/export-report";
 import { ReportEditor } from "@/components/ReportEditor";
-import { Pencil } from "lucide-react";
 
 export const Route = createFileRoute("/")({
+  component: Home,
   head: () => ({
     meta: [
-      {
-        title: "محرك مراجعة وتدقيق الخطط التربوية الفردية",
-      },
-      {
-        name: "description",
-        content:
-          "محرك تدقيق حتمي للخطط التربوية الفردية: تدقيق مزدوج على مستوى الأهداف الفردية والهندسة الكلية للخطة وفق معايير الجودة الـ 24.",
-      },
-      {
-        property: "og:title",
-        content: "محرك مراجعة وتدقيق الخطط التربوية الفردية",
-      },
-      {
-        property: "og:description",
-        content:
-          "تدقيق مزدوج حتمي: جودة الأهداف الفردية + الهندسة الكلية للخطة وفق المعايير الـ 24 والأسئلة الجوهرية الستة.",
-      },
+      { title: "محرك مراجعة وتدقيق الخطط التربوية الفردية" },
+      { name: "description", content: "محرك ذكاء اصطناعي حتمي للمراجعة المزدوجة للخطط التربوية الفردية: تقييم رقمي للمعايير الـ 24، رؤية عامة للخطة، مصفوفة تغطية الاحتياجات، وتصدير PDF/DOCX/JSON." },
+      { property: "og:title", content: "محرك مراجعة وتدقيق الخطط التربوية الفردية" },
+      { property: "og:description", content: "مراجعة مزدوجة حتمية للخطط التربوية الفردية مع تقييم رقمي للمعايير الـ 24 وتصدير PDF/DOCX/JSON." },
       { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
-  component: Index,
 });
 
-type AuditResult = {
-  report: IepAuditReport;
-  parity: { bannedWordsStripped: number; singleCriterionFixes?: number };
-};
-
-type Phase = "idle" | "extracting" | "auditing" | "done";
+type AuditResult = { report: IepAuditReport; parity: { bannedWordsStripped: number; singleCriterionFixes: number } };
+type Stage = "idle" | "parsing" | "auditing";
 
 const SAVED_REPORT_KEY = "iep-audit:last-report";
+type SavedReport = { result: AuditResult; fileInfo: { name: string; textLength: number } | null; reportSections: ReportSections };
 
-const PILLARS: { key: keyof IepAuditReport["checklist_24_standards_status"]; label: string }[] = [
-  { key: "pillar_1_plaafp", label: "الركيزة 1 — مستوى الأداء الحالي (PLAAFP)" },
-  { key: "pillar_2_smart_goals", label: "الركيزة 2 — الأهداف الذكية SMART" },
-  { key: "pillar_3_admin", label: "الركيزة 3 — الجوانب الإدارية والتنظيمية" },
-  { key: "pillar_4_transition", label: "الركيزة 4 — خطة الانتقال" },
-  { key: "items_13_7_to_13_11_plan_engineering", label: "البند 13-7 إلى 13-11 — هندسة الخطة الكلية" },
-];
+async function runAudit(document: ParsedDocument): Promise<AuditResult> {
+  const response = await fetch("/api/audit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ documentName: document.name, documentText: document.text }),
+  });
+  if (!response.ok || !response.body) throw new Error("تعذر الاتصال بمحرك التدقيق.");
 
-function statusTone(text: string): "pass" | "partial" | "fail" {
-  if (text.startsWith("غير مستوفٍ")) return "fail";
-  if (text.startsWith("مستوفٍ جزئياً")) return "partial";
-  return "pass";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const message = JSON.parse(line) as
+        | { type: "result"; data: { report: IepAuditReport; parity: AuditResult["parity"] } }
+        | { type: "error"; message?: string; error?: string };
+      if (message.type === "error") throw new Error(message.message ?? message.error ?? "فشل التدقيق.");
+      if (message.type === "result") return { report: message.data.report, parity: message.data.parity };
+    }
+  }
+  throw new Error("انقطع الاتصال قبل اكتمال التقرير. أعد المحاولة.");
 }
 
-function Index() {
-  const [phase, setPhase] = useState<Phase>("idle");
+function Home() {
+  const [stage, setStage] = useState<Stage>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [fileInfo, setFileInfo] = useState<{ name: string; size: number; chars: number } | null>(null);
-  const [docText, setDocText] = useState<string | null>(null);
+  const [fileInfo, setFileInfo] = useState<{ name: string; textLength: number } | null>(null);
   const [result, setResult] = useState<AuditResult | null>(null);
-  const [domainFilter, setDomainFilter] = useState<string>("all");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [dragOver, setDragOver] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [restored, setRestored] = useState(false);
+  const [reportSections, setReportSections] = useState<ReportSections>(DEFAULT_REPORT_SECTIONS);
   const [selectingSections, setSelectingSections] = useState(false);
-  const [reportSections, setReportSections] = useState<ReportSections>(() => ({ ...DEFAULT_REPORT_SECTIONS }));
+  const [editing, setEditing] = useState(false);
+  const [exporting, setExporting] = useState<null | "docx" | "json">(null);
+  const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const restoredRef = useRef(false);
 
-  // Keep the last report (incl. manual edits) in the browser so a page reload doesn't wipe it.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(SAVED_REPORT_KEY);
-      if (raw) {
-        const saved = JSON.parse(raw) as {
-          result: AuditResult;
-          fileInfo: { name: string; size: number; chars: number } | null;
-          reportSections?: ReportSections;
-        };
-        if (saved?.result?.report) {
-          setResult(saved.result);
-          setFileInfo(saved.fileInfo ?? null);
-          if (saved.reportSections) setReportSections({ ...DEFAULT_REPORT_SECTIONS, ...saved.reportSections });
-          setPhase("done");
-        }
-      }
+      if (!raw) return;
+      const saved = JSON.parse(raw) as SavedReport;
+      if (!saved.result?.report?.level1_quality_standards) return;
+      setResult(saved.result);
+      setFileInfo(saved.fileInfo ?? null);
+      setReportSections({ ...DEFAULT_REPORT_SECTIONS, ...(saved.reportSections ?? {}) });
+      setRestored(true);
     } catch {
-      localStorage.removeItem(SAVED_REPORT_KEY);
+      /* corrupted entry — ignore */
     }
-    restoredRef.current = true;
   }, []);
 
   useEffect(() => {
-    if (!restoredRef.current) return;
+    if (!result) return;
     try {
-      if (result) {
-        localStorage.setItem(SAVED_REPORT_KEY, JSON.stringify({ result, fileInfo, reportSections }));
-      } else {
-        localStorage.removeItem(SAVED_REPORT_KEY);
-      }
+      localStorage.setItem(SAVED_REPORT_KEY, JSON.stringify({ result, fileInfo, reportSections }));
     } catch {
-      /* storage full or unavailable — keep working in memory */
+      /* quota exceeded — ignore */
     }
   }, [result, fileInfo, reportSections]);
 
   async function handleFile(file: File) {
     setError(null);
     setResult(null);
-    const name = file.name.toLowerCase();
-    if (!/\.(pdf|docx|txt|md)$/.test(name)) {
-      setError("صيغة غير مدعومة. المسموح: PDF أو DOCX أو TXT.");
-      return;
-    }
-    if (file.size > 20 * 1024 * 1024) {
-      setError("حجم الملف يتجاوز 20 ميجابايت.");
-      return;
-    }
-    setPhase("extracting");
+    setRestored(false);
+    setEditing(false);
+    setStage("parsing");
     try {
-      const text = await extractTextFromFile(file);
-      if (text.trim().length < 40) {
-        throw new Error("لم يتم استخراج نص كافٍ من المستند — قد يكون ممسوحاً ضوئياً كصورة.");
-      }
-      setDocText(text);
-      setFileInfo({ name: file.name, size: file.size, chars: text.length });
-      setPhase("idle");
+      const parsed: ParsedDocument = { name: file.name, text: await extractTextFromFile(file) };
+      setFileInfo({ name: parsed.name, textLength: parsed.text.length });
+      setStage("auditing");
+      setResult(await runAudit(parsed));
     } catch (e) {
-      setPhase("idle");
-      setError(e instanceof Error ? e.message : "فشل قراءة المستند.");
-    }
-  }
-
-  async function startAudit() {
-    if (!docText || !fileInfo) return;
-    setPhase("auditing");
-    setError(null);
-    try {
-      const resp = await fetch("/api/audit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documentName: fileInfo.name, documentText: docText }),
-      });
-      if (!resp.ok || !resp.body) {
-        const j = await resp.json().catch(() => null);
-        throw new Error(j?.error ?? `فشل التدقيق (${resp.status})`);
-      }
-      const reader = resp.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      let res: Awaited<ReturnType<typeof auditIep>> | null = null;
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let i;
-        while ((i = buf.indexOf("\n")) >= 0) {
-          const line = buf.slice(0, i).trim();
-          buf = buf.slice(i + 1);
-          if (!line) continue;
-          const msg = JSON.parse(line);
-          if (msg.type === "error") throw new Error(msg.message);
-          if (msg.type === "result") res = msg.data;
-        }
-      }
-      if (!res) throw new Error("انقطع الاتصال قبل اكتمال التدقيق. أعد المحاولة.");
-      setResult(res);
-      setPhase("done");
-      requestAnimationFrame(() =>
-        document.getElementById("results")?.scrollIntoView({ behavior: "smooth" }),
-      );
-    } catch (e) {
-      setPhase("idle");
-      const msg = e instanceof Error ? e.message : "فشل التدقيق.";
-      setError(
-        /402/i.test(msg)
-          ? "رصيد الذكاء الاصطناعي غير كافٍ — يمكن التحقق من الرصيد من إعدادات المساحة."
-          : /403|401/i.test(msg)
-            ? "تم رفض طلب التدقيق من مزوّد النموذج — أعد المحاولة لاحقاً بعد استعادة الوصول."
-            : msg,
-      );
+      setError(e instanceof Error ? e.message : "حدث خطأ غير متوقع.");
+      setFileInfo(null);
+    } finally {
+      setStage("idle");
     }
   }
 
   function reset() {
-    setPhase("idle");
-    setError(null);
-    setDocText(null);
-    setFileInfo(null);
     setResult(null);
-    setDomainFilter("all");
-    setCategoryFilter("all");
+    setFileInfo(null);
+    setError(null);
+    setRestored(false);
     setSelectingSections(false);
-    setReportSections({ ...DEFAULT_REPORT_SECTIONS });
+    setEditing(false);
+    setReportSections(DEFAULT_REPORT_SECTIONS);
+    try {
+      localStorage.removeItem(SAVED_REPORT_KEY);
+    } catch {
+      /* ignore */
+    }
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  const filteredRevisions = useMemo(() => {
-    if (!result) return [];
-    return result.report.revisions.filter(
-      (r) =>
-        (domainFilter === "all" || r.domain === domainFilter) &&
-        (categoryFilter === "all" || r.revision_category === categoryFilter),
-    );
-  }, [result, domainFilter, categoryFilter]);
-
-  const busy = phase === "extracting" || phase === "auditing";
+  const busy = stage !== "idle";
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {/* Header */}
-      <header className="border-b border-border bg-card">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-5 sm:px-6">
+    <main dir="rtl" className="min-h-screen bg-background text-foreground">
+      <header className="border-b border-border bg-card/60 backdrop-blur print:hidden">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              <ShieldCheck className="h-6 w-6" />
-            </div>
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+              <ShieldCheck className="h-5 w-5" />
+            </span>
             <div>
-              <h1 className="text-lg font-bold leading-tight sm:text-xl">
-                محرك مراجعة وتدقيق الخطط التربوية الفردية
-              </h1>
-              <p className="text-xs text-muted-foreground sm:text-sm">
-                IEP Review &amp; Engineering Engine — مراجعة مزدوجة حتمية وفق معايير الجودة الـ 24
-              </p>
+              <h1 className="text-lg font-bold leading-tight">محرك مراجعة وتدقيق الخطط التربوية الفردية</h1>
+              <p className="text-xs text-muted-foreground">مراجعة مزدوجة حتمية — تقييم رقمي للمعايير الـ 24 + مراجعة إشرافية إضافية</p>
             </div>
           </div>
           {result && (
-            <div className="flex shrink-0 flex-wrap gap-2 print:hidden">
-              <button
-                onClick={() => setEditing(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-              >
-                <Pencil className="h-4 w-4" />
-                تعديل التقرير
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-2 text-sm hover:bg-accent">
+                <Pencil className="h-4 w-4" /> تعديل التقرير
               </button>
               <button
-                onClick={() => setSelectingSections((current) => !current)}
-                aria-pressed={selectingSections}
-                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${selectingSections ? "border-primary bg-primary/10 text-primary" : "border-input bg-background hover:bg-accent"}`}
+                onClick={() => setSelectingSections((v) => !v)}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm ${selectingSections ? "border-primary bg-primary/10 text-primary" : "border-input hover:bg-accent"}`}
               >
-                <CheckSquare2 className="h-4 w-4" />
-                تحديد مكونات التقرير
+                <ListChecks className="h-4 w-4" /> تحديد مكونات التقرير
               </button>
-              {[
-                { label: "PDF", fn: () => exportPdf() },
-                { label: "DOCX", fn: () => void exportDocx(result.report, reportSections) },
-                { label: "JSON", fn: () => exportJsonFile(result, result.report, reportSections) },
-              ].map((b) => (
-                <button
-                  key={b.label}
-                  onClick={b.fn}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-input bg-background px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
-                >
-                  <Download className="h-4 w-4" />
-                  {b.label}
-                </button>
-              ))}
+              <button onClick={() => exportPdf()} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-2 text-sm hover:bg-accent">
+                <Printer className="h-4 w-4" /> طباعة / PDF
+              </button>
+              <button
+                disabled={exporting !== null}
+                onClick={async () => {
+                  setExporting("docx");
+                  try {
+                    await exportDocx(result.report, reportSections);
+                  } finally {
+                    setExporting(null);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-2 text-sm hover:bg-accent disabled:opacity-50"
+              >
+                {exporting === "docx" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Word
+              </button>
+              <button
+                disabled={exporting !== null}
+                onClick={() => {
+                  setExporting("json");
+                  try {
+                    exportJson(result, result.report, reportSections);
+                  } finally {
+                    setExporting(null);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-2 text-sm hover:bg-accent disabled:opacity-50"
+              >
+                <FileJson className="h-4 w-4" /> JSON
+              </button>
+              <button onClick={reset} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
+                <Upload className="h-4 w-4" /> مستند جديد
+              </button>
             </div>
           )}
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-        {/* Upload */}
-        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-7 print:hidden">
-          <h2 className="flex items-center gap-2 text-base font-semibold">
-            <FileUp className="h-5 w-5 text-primary" />
-            ارفع الخطة التربوية الفردية
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            الصيغ المدعومة: PDF و DOCX و TXT — حتى 20 ميجابايت.
-          </p>
+      <div className="mx-auto max-w-6xl px-4 py-8">
+        {!result && (
+          <section className="mx-auto max-w-2xl space-y-6">
+            <div className="space-y-2 text-center">
+              <h2 className="text-2xl font-bold">ارفع الخطة التربوية الفردية لبدء التدقيق</h2>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                يحلل المحرك المستند وفق المراجعة المزدوجة: تقييم رقمي للمعايير الرسمية الـ 24 مع قرار اعتماد، ومراجعة إشرافية للرؤية العامة ومصفوفة تغطية الاحتياجات، ثم يُخرج تقريراً كاملاً قابلاً للتعديل والتصدير.
+              </p>
+            </div>
 
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              const file = e.dataTransfer.files?.[0];
-              if (file) void handleFile(file);
-            }}
-            onClick={() => !busy && inputRef.current?.click()}
-            className={`mt-4 cursor-pointer rounded-xl border-2 border-dashed p-8 text-center transition-colors ${
-              dragOver ? "border-primary bg-accent" : "border-border hover:border-primary/50 hover:bg-accent/40"
-            } ${busy ? "pointer-events-none opacity-60" : ""}`}
-          >
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".pdf,.docx,.txt,.md"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) void handleFile(file);
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
               }}
-            />
-            {phase === "extracting" ? (
-              <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="text-sm">جارٍ قراءة المستند واستخراج النص…</p>
-              </div>
-            ) : fileInfo ? (
-              <div className="flex flex-col items-center gap-1">
-                <FileText className="h-8 w-8 text-primary" />
-                <p className="font-medium">{fileInfo.name}</p>
-                <p className="text-sm text-muted-foreground">
-                  {(fileInfo.size / 1024).toFixed(0)} كيلوبايت — {fileInfo.chars.toLocaleString("en-US")} حرفاً مستخرجاً
-                </p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-1 text-muted-foreground">
-                <FileUp className="h-8 w-8" />
-                <p className="text-sm font-medium text-foreground">اسحب الملف هنا أو انقر للاختيار</p>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <button
-              onClick={() => void startAudit()}
-              disabled={!docText || busy}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const f = e.dataTransfer.files?.[0];
+                if (f && !busy) void handleFile(f);
+              }}
+              className={`rounded-2xl border-2 border-dashed p-10 text-center transition-colors ${dragOver ? "border-primary bg-primary/5" : "border-border bg-card"}`}
             >
-              {phase === "auditing" ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  جارٍ تنفيذ المراجعة المزدوجة…
-                </>
+              <input
+                ref={inputRef}
+                type="file"
+                accept=".pdf,.docx,.txt"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleFile(f);
+                }}
+              />
+              {busy ? (
+                <div className="space-y-3">
+                  <Loader2 className="mx-auto h-10 w-10 animate-spin text-primary" />
+                  <p className="font-medium">{stage === "parsing" ? "جارٍ قراءة المستند…" : "جارٍ تنفيذ المراجعة المزدوجة…"}</p>
+                  {stage === "auditing" && <p className="text-xs text-muted-foreground">قد يستغرق التدقيق الكامل حتى دقيقتين تقريباً — لا تغلق الصفحة.</p>}
+                </div>
               ) : (
-                <>
-                  <Sparkles className="h-4 w-4" />
-                  بدء التدقيق
-                </>
+                <div className="space-y-3">
+                  <FileText className="mx-auto h-10 w-10 text-muted-foreground" />
+                  <p className="font-medium">اسحب الملف هنا أو اختره من جهازك</p>
+                  <p className="text-xs text-muted-foreground">PDF أو Word (DOCX) أو نص (TXT)</p>
+                  <button onClick={() => inputRef.current?.click()} className="rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90">
+                    اختيار ملف
+                  </button>
+                </div>
               )}
-            </button>
-            {fileInfo && (
-              <button
-                onClick={reset}
-                disabled={busy}
-                className="inline-flex items-center gap-2 rounded-lg border border-input bg-background px-4 py-2.5 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50"
-              >
-                <RotateCcw className="h-4 w-4" />
-                مستند جديد
-              </button>
-            )}
-          </div>
-
-          {phase === "auditing" && (
-            <div className="mt-4 rounded-lg border border-border bg-accent/40 px-4 py-3 text-sm text-accent-foreground">
-              يجري المحرك الآن المراجعة المزدوجة: تدقيق الأهداف الفردية (المستوى 1) ثم الهندسة الكلية
-              للخطة (المستوى 2). قد تستغرق العملية دقيقة إلى ثلاث دقائق حسب طول الخطة.
             </div>
-          )}
 
-          {error && (
-            <div className="mt-4 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-        </section>
-
-        {result && selectingSections && (
-          <section className="mt-6 rounded-xl border border-primary/30 bg-card p-4 print:hidden">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 className="font-semibold">مكونات التقرير</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">انقر على أي إطار في التقرير أو استخدم الخيارات التالية لتضمينه أو استبعاده.</p>
+            {error && (
+              <div className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>{error}</p>
               </div>
-              <button onClick={() => setSelectingSections(false)} className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">تم الاختيار</button>
-            </div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              {REPORT_SECTION_OPTIONS.map((section) => (
-                <label key={section.id} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${reportSections[section.id] ? "border-primary bg-primary/10" : "border-border bg-background text-muted-foreground"}`}>
-                  <input
-                    type="checkbox"
-                    checked={reportSections[section.id]}
-                    onChange={() => setReportSections((current) => ({ ...current, [section.id]: !current[section.id] }))}
-                    className="h-4 w-4 accent-primary"
-                  />
-                  {section.label}
-                </label>
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              {[
+                { icon: ClipboardCheck, t: "تقييم رقمي حتمي", d: "درجة من 24 ونسبة امتثال وقرار اعتماد وفق المعايير الرسمية" },
+                { icon: Sparkles, t: "مراجعة إشرافية إضافية", d: "رؤية عامة للخطة، أهداف معدلة مصنفة، ومصفوفة تغطية الاحتياجات" },
+                { icon: Download, t: "تصدير مرن", d: "تعديل التقرير ثم طباعته أو تصديره PDF وWord وJSON بأقسام مختارة" },
+              ].map(({ icon: Icon, t, d }) => (
+                <div key={t} className="rounded-xl border border-border bg-card p-4">
+                  <Icon className="mb-2 h-5 w-5 text-primary" />
+                  <p className="text-sm font-semibold">{t}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{d}</p>
+                </div>
               ))}
             </div>
           </section>
         )}
-        {result && <AuditReportView result={result} filteredRevisions={filteredRevisions} domainFilter={domainFilter} categoryFilter={categoryFilter} setDomainFilter={setDomainFilter} setCategoryFilter={setCategoryFilter} reportSections={reportSections} selectingSections={selectingSections} onToggleSection={(id) => setReportSections((current) => ({ ...current, [id]: !current[id] }))} />}
-        {result && editing && (
-          <ReportEditor
-            report={result.report}
-            onClose={() => setEditing(false)}
-            onSave={(r) => {
-              setResult({ ...result, report: r });
-              setEditing(false);
-            }}
-          />
-        )}
-      </main>
 
-      <footer className="border-t border-border py-6 text-center text-xs text-muted-foreground">
-        مخرجات حتمية وفق العقد الصارم: مخطط JSON موحد + مصفوفة القواعد الموحدة + تحقق كودي بعد التوليد.
-      </footer>
-    </div>
+        {result && (
+          <div className="space-y-6">
+            {restored && (
+              <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 text-center text-xs text-muted-foreground print:hidden">
+                تمت استعادة آخر تقرير محفوظ تلقائياً — اضغط «مستند جديد» لبدء تدقيق جديد.
+              </div>
+            )}
+            {selectingSections && (
+              <div className="rounded-xl border border-primary/40 bg-primary/5 p-4 print:hidden">
+                <p className="mb-3 text-sm font-semibold">حدد الأقسام التي تريد تضمينها في الطباعة والتصدير:</p>
+                <div className="flex flex-wrap gap-2">
+                  {REPORT_SECTION_OPTIONS.map(({ id, label }) => (
+                    <label
+                      key={id}
+                      className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${reportSections[id] ? "border-primary bg-primary/10 font-medium text-primary" : "border-input bg-background"}`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-primary"
+                        checked={reportSections[id]}
+                        onChange={(e) => setReportSections({ ...reportSections, [id]: e.target.checked })}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            <AuditReportView result={result} fileInfo={fileInfo} reportSections={reportSections} />
+          </div>
+        )}
+      </div>
+
+      {editing && result && (
+        <ReportEditor
+          report={result.report}
+          onClose={() => setEditing(false)}
+          onSave={(r) => {
+            setResult({ ...result, report: r });
+            setEditing(false);
+          }}
+        />
+      )}
+    </main>
   );
 }
 
-function ScoreRing({ score }: { score: number }) {
-  const clamped = Math.max(0, Math.min(100, score));
-  const circumference = 2 * Math.PI * 52;
-  const offset = circumference * (1 - clamped / 100);
-  const color = clamped >= 75 ? "var(--color-chart-2)" : clamped >= 50 ? "var(--color-chart-4)" : "var(--color-destructive)";
+function ScoreRing({ percent, label, sub }: { percent: number; label: string; sub: string }) {
+  const r = 34;
+  const c = 2 * Math.PI * r;
   return (
-    <div className="relative h-36 w-36">
-      <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
-        <circle cx="60" cy="60" r="52" fill="none" stroke="var(--color-muted)" strokeWidth="10" />
+    <div className="flex items-center gap-3">
+      <svg viewBox="0 0 84 84" className="h-20 w-20 -rotate-90">
+        <circle cx="42" cy="42" r={r} fill="none" strokeWidth="8" className="stroke-muted" />
         <circle
-          cx="60"
-          cy="60"
-          r="52"
+          cx="42"
+          cy="42"
+          r={r}
           fill="none"
-          stroke={color}
-          strokeWidth="10"
+          strokeWidth="8"
           strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
+          strokeDasharray={c}
+          strokeDashoffset={c - (c * Math.min(100, Math.max(0, percent))) / 100}
+          className="stroke-primary transition-all"
         />
       </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-3xl font-bold">{clamped}%</span>
-        <span className="text-xs text-muted-foreground">درجة التكامل</span>
+      <div>
+        <p className="text-2xl font-bold tabular-nums">{percent}%</p>
+        <p className="text-xs font-medium">{label}</p>
+        <p className="text-xs text-muted-foreground">{sub}</p>
       </div>
     </div>
   );
 }
 
-function StatusIcon({ tone }: { tone: "pass" | "partial" | "fail" }) {
-  if (tone === "pass") return <CheckCircle2 className="h-5 w-5 shrink-0 text-chart-2" />;
-  if (tone === "partial") return <CircleDashed className="h-5 w-5 shrink-0 text-chart-4" />;
-  return <AlertTriangle className="h-5 w-5 shrink-0 text-destructive" />;
+function Section({ title, children, hidden }: { title: string; children: React.ReactNode; hidden?: boolean }) {
+  if (hidden) return null;
+  return (
+    <section className="space-y-3 rounded-2xl border border-border bg-card p-5 print:break-inside-avoid">
+      <h2 className="text-base font-bold">{title}</h2>
+      {children}
+    </section>
+  );
 }
 
-function AuditReportView({
-  result,
-  filteredRevisions,
-  domainFilter,
-  categoryFilter,
-  setDomainFilter,
-  setCategoryFilter,
-  reportSections,
-  selectingSections,
-  onToggleSection,
-}: {
-  result: AuditResult;
-  filteredRevisions: AuditResult["report"]["revisions"];
-  domainFilter: string;
-  categoryFilter: string;
-  setDomainFilter: (v: string) => void;
-  setCategoryFilter: (v: string) => void;
-  reportSections: ReportSections;
-  selectingSections: boolean;
-  onToggleSection: (id: ReportSectionId) => void;
-}) {
-  const { report, parity } = result;
-  const { macro_plan_engineering: macro, micro_audit_summary: summary, checklist_24_standards_status: checklist } = report;
-  const [tab, setTab] = useState<"revisions" | "mapping" | "categories">("revisions");
-  const tones = PILLARS.map((p) => statusTone(checklist[p.key]));
-  const complianceRate = Math.round(
-    (tones.reduce((n, t) => n + (t === "pass" ? 1 : t === "partial" ? 0.5 : 0), 0) / tones.length) * 100,
-  );
-  const q = macro.horizontal_analysis_6_questions;
-  const overviewItems = [
-    {
-      label: "ترابط مجالات وأهداف الخطة",
-      text: `${q.q1_horizontal_bundling}\n${q.q2_cross_domain_integration}\n${q.q6_scattered_goals_detected}`,
-    },
-    { label: "التسلسل المنطقي للخطة", text: q.q3_sequential_logic },
-    { label: "الأثر المتوقع في حياة المتعلم", text: q.q4_observable_life_impact },
-    { label: "الجاهزية لما بعد التخرج", text: q.q5_post_graduation_readiness },
+function AuditReportView({ result, fileInfo, reportSections }: { result: AuditResult; fileInfo: { name: string; textLength: number } | null; reportSections: ReportSections }) {
+  const { report } = result;
+  const s = report.student_info;
+  const l1 = report.level1_quality_standards;
+  const vision = report.level2_supervisory_review.overall_vision;
+  const coverage = report.level2_supervisory_review.needs_coverage;
+  const decisionOk = l1.accreditation_decision === "معتمدة";
+  const decisionMid = l1.accreditation_decision === "معتمدة بشرط التعديل";
+
+  const visionItems: { label: string; text: string }[] = [
+    { label: "الترابط الأفقي وسلاسل التعلم", text: vision.horizontal_bundling },
+    { label: "التكامل بين الأهداف والمجالات", text: vision.cross_domain_integration },
+    { label: "التسلسل المنطقي لمسار التدريب", text: vision.sequential_logic },
+    { label: "رصد الأهداف المشتتة", text: vision.scattered_goals },
   ];
-  const uncoveredNeeds = report.need_goal_mapping.filter((item) => !item.covering_goal);
-  const sectionClass = (id: ReportSectionId) =>
-    `${reportSections[id] ? "" : "print:hidden"} ${selectingSections ? `cursor-pointer transition-all ${reportSections[id] ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : "opacity-45 ring-2 ring-border"}` : ""}`;
-  const sectionProps = (id: ReportSectionId) => ({
-    onClick: selectingSections ? () => onToggleSection(id) : undefined,
-    onKeyDown: selectingSections ? (event: React.KeyboardEvent<HTMLElement>) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        onToggleSection(id);
-      }
-    } : undefined,
-    role: selectingSections ? "checkbox" : undefined,
-    "aria-checked": selectingSections ? reportSections[id] : undefined,
-    tabIndex: selectingSections ? 0 : undefined,
-  });
 
   return (
-    <div id="results" className="mt-8 space-y-8">
-      {/* Summary strip */}
-      <section {...sectionProps("summary")} className={`grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7 ${sectionClass("summary")}`}>
-        {[
-          { label: "الطالب", value: summary.student_name || "غير محدد" },
-          { label: "العمر", value: summary.age != null ? `${summary.age} سنة` : "غير محدد" },
-          { label: "نوع الإعاقة", value: summary.disability_type || "غير محدد" },
-          { label: "الأهداف المراجَعة", value: String(summary.total_goals_reviewed) },
-          { label: "درجة الجودة الكلية", value: `${summary.quality_score_24_standards} / 100` },
-          { label: "نسبة الامتثال للمعايير الـ 24", value: `${complianceRate}%` },
-          { label: "تغطية الاحتياجات", value: summary.plaafp_coverage_complete ? "مكتملة" : "غير مكتملة" },
-        ].map((item) => (
-          <div key={item.label} className="rounded-xl border border-border bg-card p-3 text-center shadow-sm">
-            <p className="text-[11px] text-muted-foreground">{item.label}</p>
-            <p className="mt-1 truncate text-sm font-semibold" title={item.value}>
-              {item.value}
-            </p>
-          </div>
-        ))}
-      </section>
-
-      {/* Section 1: Macro */}
-      <section {...sectionProps("overview")} className={`overflow-hidden rounded-2xl border border-border bg-card shadow-sm ${sectionClass("overview")}`}>
-        <div className="flex items-center gap-2 border-b border-border bg-accent/40 px-5 py-3">
-          <Target className="h-5 w-5 text-primary" />
-          <h2 className="font-semibold">قسم 1 — الرؤية العامة</h2>
+    <div className="space-y-6">
+      <div className="grid gap-4 rounded-2xl border border-border bg-card p-5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">الطالب</p>
+          <p className="font-bold">{s.student_name}</p>
+          <p className="text-xs text-muted-foreground">
+            العمر: {s.age ?? "غير محدد"} — {s.disability_type}
+          </p>
+          <p className="text-xs text-muted-foreground">المركز/المدرسة: {s.school_center || "غير محدد"}</p>
+          {fileInfo && <p className="text-xs text-muted-foreground">الملف: {fileInfo.name}</p>}
         </div>
-        <div className="p-5">
-          <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center">
-            <ScoreRing score={macro.integration_score_percent} />
-            <div className="flex-1 space-y-3">
-              <div className="rounded-lg border border-border bg-background px-4 py-3">
-                <p className="text-xs text-muted-foreground">مسار المهارات المهنية</p>
-                <p className="mt-1 font-semibold">{macro.target_functional_role || "لم يُحدد"}</p>
-              </div>
-              <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
-                <p className="text-xs text-primary">توصيات الرؤية العامة</p>
-                <p className="mt-1 text-sm leading-relaxed">{macro.macro_recommendation}</p>
-              </div>
-            </div>
-          </div>
+        <div className="flex items-center">
+          <ScoreRing percent={l1.compliance_percent} label="نسبة الاتساق" sub={`النتيجة: ${l1.total_score} من 24`} />
+        </div>
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">قرار الاعتماد الرقمي</p>
+          <p className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-bold ${decisionOk ? "bg-primary/10 text-primary" : decisionMid ? "bg-accent text-accent-foreground" : "bg-destructive/10 text-destructive"}`}>
+            {decisionOk ? <CheckCircle2 className="h-4 w-4" /> : <Award className="h-4 w-4" />}
+            {l1.accreditation_decision}
+          </p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">تغطية الاحتياجات</p>
+          <p className="font-bold">{coverage.all_covered ? "جميع الاحتياجات مغطاة" : `${coverage.uncovered_needs.length} احتياج غير مغطى`}</p>
+          <p className="text-xs text-muted-foreground">{report.revisions.length} هدفاً معدلاً في جدول التتبع</p>
+        </div>
+      </div>
 
-          <h3 className="mt-6 mb-3 text-sm font-semibold text-muted-foreground">
-            محاور الرؤية العامة
-          </h3>
-          <div className="grid gap-3 md:grid-cols-2">
-            {overviewItems.map((item, i) => (
-              <div key={item.label} className="rounded-lg border border-border bg-background p-4">
-                <p className="text-sm font-semibold">
-                  <span className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
-                    {i + 1}
+      <Section title="المستوى الأول — التقييم الرقمي لمعايير الجودة الـ 24" hidden={!reportSections.standards}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {PILLAR_LABELS.map(({ key, label }, i) => {
+            const pillar = l1[key];
+            return (
+              <div key={key} className="space-y-2 rounded-xl border border-border p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold">
+                    {i + 1}. {label}
+                  </p>
+                  <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-bold tabular-nums text-primary">
+                    {pillar.score} / {pillar.max_score} — {pillar.percent}%
                   </span>
-                  {item.label}
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, (pillar.score / PILLAR_MAX_SCORES[key]) * 100)}%` }} />
+                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground">{pillar.comment}</p>
+              </div>
+            );
+          })}
+        </div>
+      </Section>
+
+      <Section title="المستوى الثاني — الجزء أ: الرؤية العامة للخطة" hidden={!reportSections.overview}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {visionItems.map((v, i) => (
+            <div key={v.label} className="rounded-xl border border-border p-4">
+              <p className="mb-1 text-sm font-semibold">
+                {i + 1}. {v.label}
+              </p>
+              <p className="text-xs leading-relaxed text-muted-foreground">{v.text}</p>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="المستوى الثاني — الجزء ب: مصفوفة تغطية نقاط الاحتياج" hidden={!reportSections.mapping}>
+        {coverage.all_covered ? (
+          <p className="flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm font-medium text-primary">
+            <CheckCircle2 className="h-4 w-4" /> جميع احتياجات مستوى الأداء الحالي مغطاة بأهداف صريحة.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">الاحتياجات التالية وردت في مستوى الأداء الحالي ولم يقابلها هدف صريح — مع هدف مقترح لكل منها:</p>
+            {coverage.uncovered_needs.map((n, i) => (
+              <div key={i} className="space-y-2 rounded-xl border border-border p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-md bg-destructive/10 px-2 py-0.5 text-xs font-bold text-destructive">غير مغطى</span>
+                  <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium">{n.domain}</span>
+                </div>
+                <p className="text-sm leading-relaxed">{n.need}</p>
+                <p className="rounded-lg bg-primary/5 p-3 text-sm leading-relaxed">
+                  <span className="font-semibold text-primary">الهدف المقترح: </span>
+                  {n.suggested_goal}
                 </p>
-                <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">{item.text}</p>
               </div>
             ))}
           </div>
-        </div>
-      </section>
+        )}
+      </Section>
 
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-2 print:hidden" role="tablist">
-        {[
-          { id: "revisions", label: "جدول تتبع التعديلات" },
-          { id: "mapping", label: "مصفوفة تغطية الاحتياجات" },
-          { id: "categories", label: "تصنيف التعديلات الثلاثي" },
-        ].map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => setTab(t.id as typeof tab)}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${tab === t.id ? "bg-primary text-primary-foreground" : "border border-input bg-card hover:bg-accent"}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-      <div {...sectionProps("revisions")} className={`${tab === "revisions" ? "" : "hidden print:block"} ${sectionClass("revisions")}`}>
-      {/* Section 2: Micro audit table */}
-      <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-accent/40 px-5 py-3">
-          <h2 className="font-semibold">جدول تتبع التعديلات ({report.revisions.length} هدفاً)</h2>
-          <div className="flex flex-wrap gap-2">
-            <select
-              value={domainFilter}
-              onChange={(e) => setDomainFilter(e.target.value)}
-              className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm"
-            >
-              <option value="all">كل المجالات</option>
-              {IEP_DOMAINS.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="rounded-lg border border-input bg-background px-3 py-1.5 text-sm"
-            >
-              <option value="all">كل التصنيفات</option>
-              {REVISION_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+      <Section title={`جدول تتبع التعديلات المباشرة (${report.revisions.length})`} hidden={!reportSections.revisions}>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[860px] text-right text-sm">
-            <thead className="bg-muted/60 text-xs text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2.5 font-medium">المجال</th>
-                <th className="px-4 py-2.5 font-medium">الهدف الأصلي</th>
-                <th className="px-4 py-2.5 font-medium">الهدف المعدل</th>
-                <th className="px-4 py-2.5 font-medium">تصنيف التعديل</th>
-                <th className="px-4 py-2.5 font-medium">سبب التعديل والمعيار</th>
+          <table className="w-full min-w-[720px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border text-right">
+                {["المجال", "الهدف الأصلي", "الهدف بعد التعديل", "تصنيف التعديل", "سبب التعديل والقاعدة الفنية"].map((h) => (
+                  <th key={h} className="p-2 text-xs font-semibold text-muted-foreground">
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {filteredRevisions.map((r, i) => (
-                <tr key={i} className="border-t border-border align-top">
-                  <td className="whitespace-nowrap px-4 py-3 font-medium">{r.domain}</td>
-                  <td className="px-4 py-3 leading-relaxed text-muted-foreground">{r.original_goal}</td>
-                  <td className="px-4 py-3 leading-relaxed">{r.revised_goal}</td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <span className="inline-block rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
-                      {r.revision_category}
-                    </span>
+              {report.revisions.map((r, i) => (
+                <tr key={i} className="border-b border-border/60 align-top">
+                  <td className="p-2 text-xs font-medium">{r.domain}</td>
+                  <td className="max-w-52 p-2 text-xs leading-relaxed text-muted-foreground">{r.original_goal}</td>
+                  <td className="max-w-52 p-2 text-xs leading-relaxed">{r.revised_goal}</td>
+                  <td className="p-2">
+                    <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{r.revision_category}</span>
                   </td>
-                  <td className="px-4 py-3 leading-relaxed text-muted-foreground">
+                  <td className="max-w-64 p-2 text-xs leading-relaxed text-muted-foreground">
                     {r.rationale}
-                    {r.standards_violated.length > 0 && (
-                      <span className="mt-1.5 flex flex-wrap gap-1">
-                        {r.standards_violated.map((s, j) => (
-                          <span key={j} className="rounded border border-destructive/30 bg-destructive/10 px-1.5 py-0.5 text-[11px] text-destructive">
-                            {s}
-                          </span>
-                        ))}
-                      </span>
-                    )}
+                    {r.standards_violated.length > 0 && <span className="mt-1 block text-[11px]">المعايير: {r.standards_violated.join("، ")}</span>}
                   </td>
                 </tr>
               ))}
-              {filteredRevisions.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
-                    لا توجد تعديلات مطابقة للتصفية الحالية.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
-        {(parity.bannedWordsStripped > 0 || (parity.singleCriterionFixes ?? 0) > 0) && (
-          <p className="border-t border-border bg-muted/40 px-5 py-2.5 text-xs text-muted-foreground">
-            تطبيق مصفوفة القواعد الموحدة:
-            {parity.bannedWordsStripped > 0 &&
-              ` تم حذف ${parity.bannedWordsStripped} كلمة ضمنية محظورة من الأهداف المعدلة.`}
-            {(parity.singleCriterionFixes ?? 0) > 0 &&
-              ` تم توحيد معيار القياس في ${parity.singleCriterionFixes} هدفاً بحذف المقاييس المزدوجة.`}
-          </p>
-        )}
-      </section>
+      </Section>
 
-      </div>
-      <div {...sectionProps("mapping")} className={`${tab === "mapping" ? "" : "hidden print:block"} ${sectionClass("mapping")}`}>
-      {/* Section 3: Need-to-goal mapping */}
-      <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-        <div className="flex items-center gap-2 border-b border-border bg-accent/40 px-5 py-3">
-          <ShieldCheck className="h-5 w-5 text-primary" />
-          <h2 className="font-semibold">الاحتياجات غير المغطاة ضمن مستوى الأداء الحالي</h2>
-        </div>
-        <div className="p-5">
-          <div className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${summary.plaafp_coverage_complete ? "border-chart-2/40 bg-chart-2/10" : "border-destructive/30 bg-destructive/10"}`}>
-            <StatusIcon tone={summary.plaafp_coverage_complete ? "pass" : "fail"} />
-            <p className="text-sm font-medium">
-              {summary.plaafp_coverage_complete
-                ? "جميع الاحتياجات المسجلة في مستوى الأداء الحالي مغطاة بأهداف محددة."
-                : "توجد احتياجات غير مغطاة بأهداف — يجب توليد أهداف لها وفق قاعدة التغطية الكاملة."}
-            </p>
-          </div>
-          {uncoveredNeeds.length > 0 && (
-            <ul className="mt-3 space-y-2">
-              {uncoveredNeeds.map((n, i) => (
-                <li
-                  key={i}
-                  className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive"
-                >
-                  <StatusIcon tone="fail" />
-                  <span>
-                    <span className="block text-[11px] opacity-70">{n.domain}</span>
-                    {n.need}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {uncoveredNeeds.length === 0 && summary.unmapped_needs.length > 0 && (
-            <ul className="mt-3 space-y-2">
-              {summary.unmapped_needs.map((need, i) => (
-                <li key={i} className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-2.5 text-sm">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-                  <span>احتياج غير مغطى: {need}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
-
-      </div>
-      <div {...sectionProps("categories")} className={`${tab === "categories" ? "space-y-4" : "hidden print:block print:space-y-4"} ${sectionClass("categories")}`}>
-        {REVISION_CATEGORIES.map((cat) => {
-          const items = report.revisions.filter((r) => r.revision_category === cat);
-          return (
-            <section key={cat} className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-              <div className="flex items-center justify-between border-b border-border bg-accent/40 px-5 py-3">
-                <h2 className="font-semibold">{cat}</h2>
-                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${items.length >= 3 ? "bg-chart-2/15 text-chart-2" : "bg-destructive/10 text-destructive"}`}>
-                  {items.length} أمثلة {items.length < 3 && "— أقل من الحد الأدنى (3)"}
-                </span>
-              </div>
-              <ul className="divide-y divide-border">
-                {items.map((r, i) => (
-                  <li key={i} className="space-y-1.5 px-5 py-3 text-sm">
-                    <p className="text-[11px] text-muted-foreground">{r.domain}</p>
-                    <p className="text-muted-foreground line-through decoration-destructive/40">{r.original_goal}</p>
-                    <p className="font-medium">{r.revised_goal}</p>
-                    <p className="text-xs text-muted-foreground">{r.rationale}</p>
-                  </li>
-                ))}
-                {items.length === 0 && <li className="px-5 py-4 text-sm text-muted-foreground">لا توجد أمثلة.</li>}
-              </ul>
-            </section>
-          );
-        })}
-      </div>
-
-      {/* Section 4: 24 standards checklist */}
-      <section {...sectionProps("standards")} className={`overflow-hidden rounded-2xl border border-border bg-card shadow-sm ${sectionClass("standards")}`}>
-        <div className="flex items-center gap-2 border-b border-border bg-accent/40 px-5 py-3">
-          <CheckCircle2 className="h-5 w-5 text-primary" />
-          <h2 className="font-semibold">قسم 4 — قائمة معايير الجودة الـ 24 (الركائز 1-4 + البنود 13-7 إلى 13-11)</h2>
-        </div>
-        <ul className="divide-y divide-border">
-          {PILLARS.map((p) => {
-            const text = checklist[p.key];
-            const tone = statusTone(text);
+      <Section title="التصنيف الثلاثي لتعديلات الأهداف" hidden={!reportSections.categories}>
+        <div className="grid gap-3 lg:grid-cols-3">
+          {REVISION_CATEGORIES.map((category) => {
+            const items = report.revisions.filter((r) => r.revision_category === category);
             return (
-              <li key={p.key} className="flex items-start gap-3 px-5 py-4">
-                <StatusIcon tone={tone} />
-                <div>
-                  <p className="text-sm font-semibold">{p.label}</p>
-                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{text}</p>
-                </div>
-              </li>
+              <div key={category} className="space-y-2 rounded-xl border border-border p-4">
+                <p className="flex items-center justify-between text-sm font-semibold">
+                  {category}
+                  <span className="rounded-md bg-muted px-2 py-0.5 text-xs tabular-nums">{items.length}</span>
+                </p>
+                {items.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">لا توجد أمثلة تحت هذا التصنيف.</p>
+                ) : (
+                  items.map((r, i) => (
+                    <p key={i} className="rounded-lg bg-muted/50 p-2 text-xs leading-relaxed">
+                      {r.revised_goal}
+                    </p>
+                  ))
+                )}
+              </div>
             );
           })}
-        </ul>
-      </section>
+        </div>
+      </Section>
 
-      {report.recommendations.length > 0 && (
-        <section {...sectionProps("recommendations")} className={`overflow-hidden rounded-2xl border border-border bg-card shadow-sm ${sectionClass("recommendations")}`}>
-          <div className="flex items-center gap-2 border-b border-border bg-accent/40 px-5 py-3">
-            <Sparkles className="h-5 w-5 text-primary" />
-            <h2 className="font-semibold">التوصيات</h2>
-          </div>
-          <ol className="list-decimal space-y-2 px-10 py-4 text-sm leading-relaxed">
-            {report.recommendations.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ol>
-        </section>
-      )}
+      <Section title="التوصيات الإشرافية النهائية وتوجيهات الاعتماد" hidden={!reportSections.recommendations}>
+        <ol className="space-y-2">
+          {report.recommendations.map((t, i) => (
+            <li key={i} className="flex items-start gap-2 text-sm leading-relaxed">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{i + 1}</span>
+              {t}
+            </li>
+          ))}
+        </ol>
+      </Section>
     </div>
   );
 }
