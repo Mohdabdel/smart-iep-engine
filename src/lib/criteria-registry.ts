@@ -138,6 +138,16 @@ export type ReviewConfig = {
   review_type: ReviewType;
   sources: Record<EvidenceSourceId, SourceState>;
   criteria: Record<string, { state: CriterionState; reason?: string | undefined }>;
+  /** انطباق كل مفهوم انتقال على هذه المراجعة (اختياري) — يحدد نوع نسبة التغطية */
+  transition_applicability?: Record<string, TransitionApplicability> | undefined;
+};
+
+export const TRANSITION_APPLICABILITY = ["unset", "applies", "na"] as const;
+export type TransitionApplicability = (typeof TRANSITION_APPLICABILITY)[number];
+export const TRANSITION_APPLICABILITY_LABELS: Record<TransitionApplicability, string> = {
+  unset: "غير محدد",
+  applies: "ينطبق",
+  na: "لا ينطبق",
 };
 
 export function defaultReviewConfig(): ReviewConfig {
@@ -150,7 +160,7 @@ export function defaultReviewConfig(): ReviewConfig {
       DEFAULT_FROZEN[c.id] ? { state: "frozen" as const, reason: DEFAULT_FROZEN[c.id] } : { state: "active" as const },
     ]),
   );
-  return { review_type: "full", sources, criteria };
+  return { review_type: "full", sources, criteria, transition_applicability: {} };
 }
 
 /** المحاور التي يغطيها كل نوع مراجعة — يحدد ما يُطلب من المحرك فعلاً */

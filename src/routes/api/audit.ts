@@ -7,6 +7,7 @@ const inputSchema = z.object({
     review_type: z.enum(["full", "quality", "supervisory", "goals", "plaafp", "post_correction", "compare_previous"]),
     sources: z.record(z.string(), sourceState),
     criteria: z.record(z.string(), z.object({ state: z.enum(["active", "frozen", "na"]), reason: z.string().optional() })),
+    transition_applicability: z.record(z.string(), z.enum(["unset", "applies", "na"])).optional(),
   }),
   keys: z.array(z.string()).min(1),
   documents: z
