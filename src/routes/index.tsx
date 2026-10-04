@@ -251,7 +251,6 @@ function Home() {
     setCaseStatus(status);
     const built = buildFromParts(final, cfg);
     setResult(built);
-    if (built) setReportSections((s) => s);
     if (status === "completed" && id) dropCaseDocuments(id);
     if (id) {
       await updateReviewCase(id, {
