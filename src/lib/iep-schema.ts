@@ -24,88 +24,120 @@ export const BANNED_IMPLIED_WORDS = [
   "بدون مساعدة",
 ] as const;
 
+/** قرارات الاعتماد الرقمي */
+export const ACCREDITATION_DECISIONS = [
+  "معتمدة",
+  "معتمدة بشرط التعديل",
+  "غير معتمدة - تتطلب استكمال البنود",
+] as const;
+
+/** حدود درجات الركائز الأربع (7 + 8 + 4 + 5 = 24) */
+export const PILLAR_MAX_SCORES = {
+  pillar_1_plaafp: 7,
+  pillar_2_smart_goals: 8,
+  pillar_3_admin: 4,
+  pillar_4_transition: 5,
+} as const;
+
+const pillarJsonSchema = (max: number): import("json-schema").JSONSchema7 => ({
+  type: "object",
+  additionalProperties: false,
+  required: ["score", "max_score", "percent", "comment"],
+  properties: {
+    score: { type: "number", minimum: 0, maximum: max },
+    max_score: { type: "number", const: max },
+    percent: { type: "number", minimum: 0, maximum: 100 },
+    comment: { type: "string" },
+  },
+});
+
 /** مخطط JSON الصارم المرسل إلى النموذج (Strict JSON Schema, Temperature 0) */
 export const auditReportJsonSchema: import("json-schema").JSONSchema7 = {
   type: "object",
   additionalProperties: false,
   required: [
-    "macro_plan_engineering",
-    "micro_audit_summary",
+    "student_info",
+    "level1_quality_standards",
+    "level2_supervisory_review",
     "revisions",
-    "checklist_24_standards_status",
-    "need_goal_mapping",
     "recommendations",
   ],
   properties: {
-    need_goal_mapping: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["need", "domain", "covering_goal"],
-        properties: {
-          need: { type: "string" },
-          domain: { enum: [...IEP_DOMAINS] },
-          covering_goal: { type: ["string", "null"] },
-        },
-      },
-    },
-    recommendations: { type: "array", items: { type: "string" } },
-    macro_plan_engineering: {
+    student_info: {
       type: "object",
       additionalProperties: false,
-      required: [
-        "integration_score_percent",
-        "target_functional_role",
-        "horizontal_analysis_6_questions",
-        "macro_recommendation",
-      ],
-      properties: {
-        integration_score_percent: { type: "number" },
-        target_functional_role: { type: "string" },
-        horizontal_analysis_6_questions: {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "q1_horizontal_bundling",
-            "q2_cross_domain_integration",
-            "q3_sequential_logic",
-            "q4_observable_life_impact",
-            "q5_post_graduation_readiness",
-            "q6_scattered_goals_detected",
-          ],
-          properties: {
-            q1_horizontal_bundling: { type: "string" },
-            q2_cross_domain_integration: { type: "string" },
-            q3_sequential_logic: { type: "string" },
-            q4_observable_life_impact: { type: "string" },
-            q5_post_graduation_readiness: { type: "string" },
-            q6_scattered_goals_detected: { type: "string" },
-          },
-        },
-        macro_recommendation: { type: "string" },
-      },
-    },
-    micro_audit_summary: {
-      type: "object",
-      additionalProperties: false,
-      required: [
-        "student_name",
-        "age",
-        "disability_type",
-        "total_goals_reviewed",
-        "quality_score_24_standards",
-        "plaafp_coverage_complete",
-        "unmapped_needs",
-      ],
+      required: ["student_name", "age", "disability_type", "school_center"],
       properties: {
         student_name: { type: "string" },
         age: { type: ["number", "null"] },
         disability_type: { type: "string" },
-        total_goals_reviewed: { type: "number" },
-        quality_score_24_standards: { type: "number" },
-        plaafp_coverage_complete: { type: "boolean" },
-        unmapped_needs: { type: "array", items: { type: "string" } },
+        school_center: { type: "string" },
+      },
+    },
+    level1_quality_standards: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "total_score",
+        "compliance_percent",
+        "accreditation_decision",
+        "pillar_1_plaafp",
+        "pillar_2_smart_goals",
+        "pillar_3_admin",
+        "pillar_4_transition",
+      ],
+      properties: {
+        total_score: { type: "number", minimum: 0, maximum: 24 },
+        compliance_percent: { type: "number", minimum: 0, maximum: 100 },
+        accreditation_decision: { enum: [...ACCREDITATION_DECISIONS] },
+        pillar_1_plaafp: pillarJsonSchema(7),
+        pillar_2_smart_goals: pillarJsonSchema(8),
+        pillar_3_admin: pillarJsonSchema(4),
+        pillar_4_transition: pillarJsonSchema(5),
+      },
+    },
+    level2_supervisory_review: {
+      type: "object",
+      additionalProperties: false,
+      required: ["overall_vision", "needs_coverage"],
+      properties: {
+        overall_vision: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "horizontal_bundling",
+            "cross_domain_integration",
+            "sequential_logic",
+            "scattered_goals",
+          ],
+          properties: {
+            horizontal_bundling: { type: "string" },
+            cross_domain_integration: { type: "string" },
+            sequential_logic: { type: "string" },
+            scattered_goals: { type: "string" },
+          },
+        },
+        needs_coverage: {
+          type: "object",
+          additionalProperties: false,
+          required: ["all_covered", "uncovered_needs"],
+          properties: {
+            all_covered: { type: "boolean" },
+            uncovered_needs: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["need", "domain", "suggested_goal"],
+                properties: {
+                  need: { type: "string" },
+                  domain: { enum: [...IEP_DOMAINS] },
+                  suggested_goal: { type: "string" },
+                },
+              },
+            },
+          },
+        },
       },
     },
     revisions: {
@@ -131,50 +163,48 @@ export const auditReportJsonSchema: import("json-schema").JSONSchema7 = {
         },
       },
     },
-    checklist_24_standards_status: {
-      type: "object",
-      additionalProperties: false,
-      required: [
-        "pillar_1_plaafp",
-        "pillar_2_smart_goals",
-        "pillar_3_admin",
-        "pillar_4_transition",
-        "items_13_7_to_13_11_plan_engineering",
-      ],
-      properties: {
-        pillar_1_plaafp: { type: "string" },
-        pillar_2_smart_goals: { type: "string" },
-        pillar_3_admin: { type: "string" },
-        pillar_4_transition: { type: "string" },
-        items_13_7_to_13_11_plan_engineering: { type: "string" },
-      },
-    },
+    recommendations: { type: "array", items: { type: "string" } },
   },
 };
 
+export type PillarScore = {
+  score: number;
+  max_score: number;
+  percent: number;
+  comment: string;
+};
 
 export type IepAuditReport = {
-  macro_plan_engineering: {
-    integration_score_percent: number;
-    target_functional_role: string;
-    horizontal_analysis_6_questions: {
-      q1_horizontal_bundling: string;
-      q2_cross_domain_integration: string;
-      q3_sequential_logic: string;
-      q4_observable_life_impact: string;
-      q5_post_graduation_readiness: string;
-      q6_scattered_goals_detected: string;
-    };
-    macro_recommendation: string;
-  };
-  micro_audit_summary: {
+  student_info: {
     student_name: string;
     age: number | null;
     disability_type: string;
-    total_goals_reviewed: number;
-    quality_score_24_standards: number;
-    plaafp_coverage_complete: boolean;
-    unmapped_needs: string[];
+    school_center: string;
+  };
+  level1_quality_standards: {
+    total_score: number;
+    compliance_percent: number;
+    accreditation_decision: (typeof ACCREDITATION_DECISIONS)[number];
+    pillar_1_plaafp: PillarScore;
+    pillar_2_smart_goals: PillarScore;
+    pillar_3_admin: PillarScore;
+    pillar_4_transition: PillarScore;
+  };
+  level2_supervisory_review: {
+    overall_vision: {
+      horizontal_bundling: string;
+      cross_domain_integration: string;
+      sequential_logic: string;
+      scattered_goals: string;
+    };
+    needs_coverage: {
+      all_covered: boolean;
+      uncovered_needs: {
+        need: string;
+        domain: (typeof IEP_DOMAINS)[number];
+        suggested_goal: string;
+      }[];
+    };
   };
   revisions: {
     domain: (typeof IEP_DOMAINS)[number];
@@ -184,40 +214,51 @@ export type IepAuditReport = {
     rationale: string;
     standards_violated: string[];
   }[];
-  checklist_24_standards_status: {
-    pillar_1_plaafp: string;
-    pillar_2_smart_goals: string;
-    pillar_3_admin: string;
-    pillar_4_transition: string;
-    items_13_7_to_13_11_plan_engineering: string;
-  };
-  need_goal_mapping: { need: string; domain: (typeof IEP_DOMAINS)[number]; covering_goal: string | null }[];
   recommendations: string[];
 };
 
+const pillarZod = (max: number) =>
+  z.object({
+    score: z.number().min(0).max(max),
+    max_score: z.literal(max),
+    percent: z.number().min(0).max(100),
+    comment: z.string(),
+  });
+
 /** تحقق نهائي صارم من بنية التقرير بعد الاستلام */
 export const auditReportZodSchema = z.object({
-  macro_plan_engineering: z.object({
-    integration_score_percent: z.number().min(0).max(100),
-    target_functional_role: z.string(),
-    horizontal_analysis_6_questions: z.object({
-      q1_horizontal_bundling: z.string(),
-      q2_cross_domain_integration: z.string(),
-      q3_sequential_logic: z.string(),
-      q4_observable_life_impact: z.string(),
-      q5_post_graduation_readiness: z.string(),
-      q6_scattered_goals_detected: z.string(),
-    }),
-    macro_recommendation: z.string(),
-  }),
-  micro_audit_summary: z.object({
+  student_info: z.object({
     student_name: z.string(),
     age: z.number().nullable(),
     disability_type: z.string(),
-    total_goals_reviewed: z.number(),
-    quality_score_24_standards: z.number(),
-    plaafp_coverage_complete: z.boolean(),
-    unmapped_needs: z.array(z.string()),
+    school_center: z.string(),
+  }),
+  level1_quality_standards: z.object({
+    total_score: z.number().min(0).max(24),
+    compliance_percent: z.number().min(0).max(100),
+    accreditation_decision: z.enum(ACCREDITATION_DECISIONS),
+    pillar_1_plaafp: pillarZod(7),
+    pillar_2_smart_goals: pillarZod(8),
+    pillar_3_admin: pillarZod(4),
+    pillar_4_transition: pillarZod(5),
+  }),
+  level2_supervisory_review: z.object({
+    overall_vision: z.object({
+      horizontal_bundling: z.string(),
+      cross_domain_integration: z.string(),
+      sequential_logic: z.string(),
+      scattered_goals: z.string(),
+    }),
+    needs_coverage: z.object({
+      all_covered: z.boolean(),
+      uncovered_needs: z.array(
+        z.object({
+          need: z.string(),
+          domain: z.enum(IEP_DOMAINS),
+          suggested_goal: z.string(),
+        }),
+      ),
+    }),
   }),
   revisions: z.array(
     z.object({
@@ -228,16 +269,6 @@ export const auditReportZodSchema = z.object({
       rationale: z.string(),
       standards_violated: z.array(z.string()),
     }),
-  ),
-  checklist_24_standards_status: z.object({
-    pillar_1_plaafp: z.string(),
-    pillar_2_smart_goals: z.string(),
-    pillar_3_admin: z.string(),
-    pillar_4_transition: z.string(),
-    items_13_7_to_13_11_plan_engineering: z.string(),
-  }),
-  need_goal_mapping: z.array(
-    z.object({ need: z.string(), domain: z.enum(IEP_DOMAINS), covering_goal: z.string().nullable() }),
   ),
   recommendations: z.array(z.string()),
 });
