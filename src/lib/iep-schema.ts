@@ -242,7 +242,7 @@ const pillarZod = (max: number) =>
 
 /** تحقق نهائي صارم من بنية التقرير بعد الاستلام */
 export const auditReportZodSchema = z.object({
-  audit_scope: z.enum(AUDIT_SCOPES).optional(),
+  audit_scope: z.enum(AUDIT_SCOPES).default("both"),
   student_info: z.object({
     student_name: z.string(),
     age: z.number().nullable(),
@@ -301,7 +301,7 @@ export function buildScopedJsonSchema(scope: AuditScope): import("json-schema").
     type: "object",
     additionalProperties: false,
     required: keys,
-    properties: Object.fromEntries(keys.map((k) => [k, props[k]])),
+    properties: Object.fromEntries(keys.map((k) => [k, props[k]!])) as Record<string, import("json-schema").JSONSchema7Definition>,
   };
 }
 
