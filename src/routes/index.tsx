@@ -64,10 +64,10 @@ async function runAudit(document: ParsedDocument): Promise<AuditResult> {
     for (const line of lines) {
       if (!line.trim()) continue;
       const message = JSON.parse(line) as
-        | { type: "result"; report: IepAuditReport; parity: AuditResult["parity"] }
-        | { type: "error"; error: string };
-      if (message.type === "error") throw new Error(message.error);
-      if (message.type === "result") return { report: message.report, parity: message.parity };
+        | { type: "result"; data: { report: IepAuditReport; parity: AuditResult["parity"] } }
+        | { type: "error"; message?: string; error?: string };
+      if (message.type === "error") throw new Error(message.message ?? message.error ?? "فشل التدقيق.");
+      if (message.type === "result") return { report: message.data.report, parity: message.data.parity };
     }
   }
   throw new Error("انقطع الاتصال قبل اكتمال التقرير. أعد المحاولة.");
