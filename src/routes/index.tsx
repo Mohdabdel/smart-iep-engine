@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -69,6 +69,8 @@ type AuditResult = {
 
 type Phase = "idle" | "extracting" | "auditing" | "done";
 
+const SAVED_REPORT_KEY = "iep-audit:last-report";
+
 const PILLARS: { key: keyof IepAuditReport["checklist_24_standards_status"]; label: string }[] = [
   { key: "pillar_1_plaafp", label: "الركيزة 1 — مستوى الأداء الحالي (PLAAFP)" },
   { key: "pillar_2_smart_goals", label: "الركيزة 2 — الأهداف الذكية SMART" },
@@ -96,6 +98,43 @@ function Index() {
   const [selectingSections, setSelectingSections] = useState(false);
   const [reportSections, setReportSections] = useState<ReportSections>(() => ({ ...DEFAULT_REPORT_SECTIONS }));
   const inputRef = useRef<HTMLInputElement>(null);
+  const restoredRef = useRef(false);
+
+  // Keep the last report (incl. manual edits) in the browser so a page reload doesn't wipe it.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SAVED_REPORT_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw) as {
+          result: AuditResult;
+          fileInfo: { name: string; size: number; chars: number } | null;
+          reportSections?: ReportSections;
+        };
+        if (saved?.result?.report) {
+          setResult(saved.result);
+          setFileInfo(saved.fileInfo ?? null);
+          if (saved.reportSections) setReportSections({ ...DEFAULT_REPORT_SECTIONS, ...saved.reportSections });
+          setPhase("done");
+        }
+      }
+    } catch {
+      localStorage.removeItem(SAVED_REPORT_KEY);
+    }
+    restoredRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    try {
+      if (result) {
+        localStorage.setItem(SAVED_REPORT_KEY, JSON.stringify({ result, fileInfo, reportSections }));
+      } else {
+        localStorage.removeItem(SAVED_REPORT_KEY);
+      }
+    } catch {
+      /* storage full or unavailable — keep working in memory */
+    }
+  }, [result, fileInfo, reportSections]);
 
   async function handleFile(file: File) {
     setError(null);
