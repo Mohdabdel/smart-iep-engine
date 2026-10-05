@@ -271,10 +271,14 @@ function strictify(node: unknown): unknown {
 
 /** تقسيم المراجعة إلى أجزاء متوازية — كل جزء طلب مستقل أقصر من سقف زمن الطلب */
 const PART_BUCKETS: ModelKey[][] = [
-  ["student_info", "executive_summary", "review_decision", "critical_gates", "criteria_results", "plaafp_review", "smart_review", "recommendations", "top_priorities"],
-  ["needs_coverage", "whole_plan", "daily_routines", "personal_social", "vertical_alignment", "plaafp_assessment"],
+  ["student_info", "executive_summary", "review_decision", "critical_gates"],
+  ["criteria_results"],
+  ["plaafp_review", "smart_review", "recommendations", "top_priorities"],
+  ["needs_coverage", "whole_plan", "plaafp_assessment"],
+  ["daily_routines", "personal_social", "vertical_alignment"],
   ["transition_minimum", "transition_coverage", "functional_contexts"],
-  ["goal_review", "revisions"],
+  ["goal_review"],
+  ["revisions"],
 ];
 export function partsForReviewType(t: ReviewType): ModelKey[][] {
   const wanted = new Set(keysForReviewType(t));

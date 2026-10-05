@@ -7,10 +7,14 @@ export type PartState = { key: string; keys: ModelKey[]; label: string; status: 
 export const partKey = (keys: ModelKey[]) => keys.join("+");
 
 export function partLabel(keys: ModelKey[]) {
-  if (keys.includes("goal_review") || keys.includes("revisions")) return "مراجعة صياغة الأهداف (Before & After)";
+  if (keys.includes("goal_review")) return "مراجعة صياغة الأهداف";
+  if (keys.includes("revisions")) return "التعديلات المقترحة (Before & After)";
   if (keys.includes("transition_coverage") || keys.includes("functional_contexts") || keys.includes("transition_minimum")) return "مفاهيم الانتقال والمواقف الوظيفية";
-  if (keys.includes("whole_plan") || keys.includes("needs_coverage") || keys.includes("plaafp_assessment")) return "مستوى الأداء الحالي والرؤية الكلية";
-  return "بيانات الطالب والقرار ومعايير الجودة";
+  if (keys.includes("needs_coverage") || keys.includes("whole_plan") || keys.includes("plaafp_assessment")) return "مستوى الأداء الحالي والرؤية الكلية";
+  if (keys.includes("daily_routines") || keys.includes("personal_social") || keys.includes("vertical_alignment")) return "الروتين اليومي والجانب الشخصي";
+  if (keys.includes("criteria_results")) return "معايير الجودة";
+  if (keys.includes("plaafp_review") || keys.includes("smart_review") || keys.includes("recommendations")) return "الملاحظات والتوصيات والأولويات";
+  return "بيانات الطالب والقرار";
 }
 
 export const initialParts = (buckets: ModelKey[][]): PartState[] =>
