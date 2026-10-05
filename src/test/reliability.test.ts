@@ -22,16 +22,16 @@ function setup(failKey?: string, retriable = false) {
 }
 
 describe("resumable orchestration", () => {
-  it("has 4 parts for a full review", () => expect(buckets).toHaveLength(4));
+  it("has 8 parts for a full review", () => expect(buckets).toHaveLength(8));
 
   it("TEST-R1: one failing part leaves 3 completed and case partial", async () => {
     const fk = initialParts(buckets)[2]!.key;
     const s = setup(fk);
     const out = await runParts({ parts: initialParts(buckets), run: s.run as never, store: s.store as never, onUpdate: () => {} });
-    expect(out.filter((p) => p.status === "completed")).toHaveLength(3);
+    expect(out.filter((p) => p.status === "completed")).toHaveLength(buckets.length - 1);
     expect(out.find((p) => p.key === fk)!.status).toBe("failed");
     expect(caseStatusFor(out)).toBe("partial");
-    expect(s.saved.filter((x) => x.status === "completed")).toHaveLength(3);
+    expect(s.saved.filter((x) => x.status === "completed")).toHaveLength(buckets.length - 1);
     expect(Object.keys(mergeParts(out)).length).toBeGreaterThan(0);
   });
 
