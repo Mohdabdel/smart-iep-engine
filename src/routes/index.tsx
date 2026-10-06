@@ -1,3 +1,4 @@
+import { authHeaders } from "@/lib/auth-header";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -94,7 +95,7 @@ function buildFromParts(parts: PartState[], config: ReviewConfig): AuditResult |
 async function runAuditPart(config: ReviewConfig, documents: ParsedDocument[], keys: ModelKey[]): Promise<Partial<ModelOutput>> {
   const response = await fetch("/api/audit", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify({ config, documents, keys }),
   });
   if (!response.ok || !response.body) {

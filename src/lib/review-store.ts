@@ -1,3 +1,4 @@
+import { authHeaders } from "@/lib/auth-header";
 /** طبقة الحفظ الدائم للمراجعات (أرشيف + أجزاء قابلة للاستكمال) — تُستدعى من المتصفح عبر /api/reviews */
 import type { ReviewConfig } from "./criteria-registry";
 import type { IepAuditReport } from "./iep-schema";
@@ -36,7 +37,7 @@ export function getOwnerKey() {
 async function call<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
   const res = await fetch("/api/reviews", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify({ action, owner_key: getOwnerKey(), ...payload }),
   });
   const j = (await res.json().catch(() => null)) as (T & { error?: string }) | null;

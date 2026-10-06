@@ -21,6 +21,9 @@ export const Route = createFileRoute("/api/audit")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        const { requireAdmin } = await import("@/lib/require-admin.server");
+        const gate = await requireAdmin(request);
+        if (gate instanceof Response) return gate;
         const parsedInput = inputSchema.safeParse(await request.json().catch(() => null));
         if (!parsedInput.success) {
           return Response.json({ error: "نص المستند قصير جداً أو فشل استخراجه، أو إعدادات المراجعة غير صالحة." }, { status: 400 });
