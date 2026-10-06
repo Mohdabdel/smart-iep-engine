@@ -16,7 +16,7 @@ export const Route = createFileRoute("/_authenticated/_admin/admin/submissions")
   }),
 });
 
-type S = { id: string; uploader_id: string; file_name: string; file_path: string; learner_name: string | null; note: string | null; status: string; created_at: string };
+type S = { id: string; uploader_id: string; file_name: string; file_path: string; learner_name: string | null; note: string | null; status: string; created_at: string; review_case_id: string | null; report_shared: boolean; share_requested: boolean };
 const LABEL: Record<string, string> = { new: "جديد", in_review: "قيد المراجعة", done: "اكتمل" };
 const btn = "rounded-lg border border-input px-3 py-1.5 text-xs hover:bg-accent";
 
@@ -32,6 +32,10 @@ function SubmissionsPage() {
   useEffect(() => void load(), []);
   const setStatus = async (id: string, status: string) => {
     await supabase.from("submissions").update({ status }).eq("id", id);
+    load();
+  };
+  const share = async (id: string, on: boolean) => {
+    await supabase.from("submissions").update({ report_shared: on, share_requested: false }).eq("id", id);
     load();
   };
   const remove = async (s: S) => {
@@ -55,12 +59,20 @@ function SubmissionsPage() {
                 <div className="font-medium">{s.file_name}</div>
                 <div className="text-xs text-muted-foreground">{s.learner_name ?? "—"} · {emails[s.uploader_id] ?? ""}</div>
                 {s.note && <div className="mt-1 text-xs">{s.note}</div>}
+                {s.share_requested && !s.report_shared && <div className="mt-1 text-xs font-medium text-primary">طلب الاطلاع على التقرير</div>}
               </td>
               <td className="p-2 text-xs">{new Date(s.created_at).toLocaleString("ar")}</td>
               <td className="p-2 text-xs">{LABEL[s.status] ?? s.status}</td>
               <td className="flex flex-wrap gap-2 p-2">
                 <a className={btn} href={`/?submission=${s.id}`}>فتح في المراجعة</a>
                 {s.status !== "done" && <button className={btn} onClick={() => setStatus(s.id, "done")}>تعليم كمكتمل</button>}
+                {s.review_case_id ? (
+                  <button className={btn} onClick={() => share(s.id, !s.report_shared)}>
+                    {s.report_shared ? "إيقاف مشاركة التقرير" : "مشاركة التقرير مع الرافع"}
+                  </button>
+                ) : (
+                  <span className="text-xs text-muted-foreground">لا يوجد تقرير بعد</span>
+                )}
                 <button className={btn} onClick={() => remove(s)}>حذف</button>
               </td>
             </tr>

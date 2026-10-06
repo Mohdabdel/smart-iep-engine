@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { SignOutButton } from "@/components/SignOutButton";
+import { MySubmissions } from "@/components/MySubmissions";
 
 export const Route = createFileRoute("/_authenticated/upload")({
   component: UploadPage,
@@ -28,6 +29,7 @@ function UploadPage() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     supabase.from("profiles").select("approval_status").eq("id", user.id).maybeSingle().then(({ data }) => setStatus(data?.approval_status ?? "pending"));
@@ -57,6 +59,7 @@ function UploadPage() {
     if (error) setErr("تعذر حفظ الطلب.");
     else {
       setDone(true);
+      setTick((t) => t + 1);
       setFile(null);
       setLearner("");
       setNote("");
@@ -65,7 +68,7 @@ function UploadPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md space-y-4 rounded-2xl border bg-card p-6 shadow-sm">
+      <div className="w-full max-w-2xl space-y-4 rounded-2xl border bg-card p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold">رفع مستند للمراجعة</h1>
           <SignOutButton className="text-sm text-muted-foreground underline" />
@@ -90,6 +93,7 @@ function UploadPage() {
             {err && <p className="text-sm text-destructive">{err}</p>}
           </form>
         )}
+        {status === "approved" && <MySubmissions userId={user.id} refresh={tick} />}
       </div>
     </div>
   );
