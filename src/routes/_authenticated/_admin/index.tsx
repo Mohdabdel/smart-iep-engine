@@ -62,7 +62,7 @@ import {
 } from "@/lib/export-report";
 import { ReportEditor } from "@/components/ReportEditor";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/_authenticated/_admin/")({
   component: Home,
   head: () => ({
     meta: [
