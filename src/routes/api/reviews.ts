@@ -13,7 +13,7 @@ const id = z.string().uuid();
 const body = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("create"),
-    owner_key: z.string().min(32),
+    owner_key: z.string().optional(),
     learner_name: z.string().nullable().optional(),
     source_file_name: z.string(),
     review_type: z.string(),
@@ -25,7 +25,7 @@ const body = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("update_part"),
-    owner_key: z.string().min(32),
+    owner_key: z.string().optional(),
     id,
     part_key: z.string(),
     status: PART_STATUS,
@@ -35,7 +35,7 @@ const body = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("update_case"),
-    owner_key: z.string().min(32),
+    owner_key: z.string().optional(),
     id,
     status: STATUS.optional(),
     report_json: z.unknown().optional(),
@@ -43,9 +43,9 @@ const body = z.discriminatedUnion("action", [
     learner_name: z.string().nullable().optional(),
     report_sections: z.unknown().optional(),
   }),
-  z.object({ action: z.literal("list"), owner_key: z.string().min(32) }),
-  z.object({ action: z.literal("load"), owner_key: z.string().min(32), id }),
-  z.object({ action: z.literal("delete"), owner_key: z.string().min(32), id }),
+  z.object({ action: z.literal("list"), owner_key: z.string().optional() }),
+  z.object({ action: z.literal("load"), owner_key: z.string().optional(), id }),
+  z.object({ action: z.literal("delete"), owner_key: z.string().optional(), id }),
 ]);
 
 const hash = (k: string) => createHash("sha256").update(k).digest("hex");
@@ -57,7 +57,11 @@ export const Route = createFileRoute("/api/reviews")({
         const parsed = body.safeParse(await request.json().catch(() => null));
         if (!parsed.success) return Response.json({ error: "طلب غير صالح." }, { status: 400 });
         const b = parsed.data;
-        const owner = hash(b.owner_key);
+        const { requireAdmin } = await import("@/lib/require-admin.server");
+        const gate = await requireAdmin(request);
+        if (gate instanceof Response) return gate;
+        void hash;
+        const owner = "admin-shared";
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const db = supabaseAdmin as any;
