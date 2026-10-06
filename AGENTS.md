@@ -21,3 +21,4 @@
 - Goal-review counts, transition coverage percentage and the decision brief are computed in code (`goalReviewCounts`, `transitionStats`), never taken from model text.
 - Review archive (`review_cases`, `review_parts`) is server-only: RLS on with no policies; `/api/reviews` uses the admin client scoped by a sha256 of a per-browser owner key — never add public/anon policies for review data.
 - Review parts run through `runParts` (`src/lib/review-orchestrator.ts`): allSettled, one retry only for network errors, resume reruns only non-completed parts; plan text for resume is cached in localStorage per case, not stored in the archive.
+- Access: _authenticated gate + _admin layout (user_roles admin); uploaders only reach /upload; /api/audit and /api/reviews require an admin bearer (require-admin.server.ts) — server must not trust the UI gate.

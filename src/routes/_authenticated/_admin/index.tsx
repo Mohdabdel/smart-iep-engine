@@ -1,4 +1,6 @@
 import { authHeaders } from "@/lib/auth-header";
+import { supabase } from "@/integrations/supabase/client";
+import { SignOutButton } from "@/components/SignOutButton";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -62,7 +64,7 @@ import {
 } from "@/lib/export-report";
 import { ReportEditor } from "@/components/ReportEditor";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/_authenticated/_admin/")({
   component: Home,
   head: () => ({
     meta: [
@@ -156,6 +158,19 @@ function Home() {
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
+    const subId = q.get("submission");
+    if (subId) {
+      window.history.replaceState(null, "", "/");
+      void (async () => {
+        const { data: sub } = await supabase.from("submissions").select("*").eq("id", subId).maybeSingle();
+        if (!sub) return setError("تعذر العثور على المستند.");
+        const { data: blob } = await supabase.storage.from("submissions").download(sub.file_path);
+        if (!blob) return setError("تعذر تنزيل المستند.");
+        await supabase.from("submissions").update({ status: "in_review" }).eq("id", subId);
+        chooseFile(new File([blob], sub.file_name, { type: blob.type }));
+      })();
+      return;
+    }
     const openId = q.get("case");
     const copyId = q.get("copy");
     if (openId || copyId) {
@@ -382,6 +397,9 @@ function Home() {
             <Link to="/reviews" className={btn}>
               <Archive className="h-4 w-4" /> المراجعات السابقة
             </Link>
+            <Link to="/admin/submissions" className={btn}>المستندات الواردة</Link>
+            <Link to="/admin/users" className={btn}>المستخدمون</Link>
+            <SignOutButton className={btn} />
           </div>
           {result && (
             <div className="flex flex-wrap items-center gap-2">

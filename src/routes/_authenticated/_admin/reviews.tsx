@@ -5,7 +5,7 @@ import { ArrowRight, Loader2, Trash2 } from "lucide-react";
 import { REVIEW_TYPES } from "@/lib/criteria-registry";
 import { CASE_STATUS_LABELS, deleteReviewCase, listReviewCases, type CaseSummary } from "@/lib/review-store";
 
-export const Route = createFileRoute("/reviews")({
+export const Route = createFileRoute("/_authenticated/_admin/reviews")({
   component: Reviews,
   head: () => ({
     meta: [
