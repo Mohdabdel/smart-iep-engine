@@ -156,6 +156,7 @@ function Home() {
   const [cloudWarning, setCloudWarning] = useState<string | null>(null);
   const [caseStatus, setCaseStatus] = useState<string | null>(null);
 
+  const submissionRef = useRef<string | null>(null);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const subId = q.get("submission");
@@ -168,6 +169,7 @@ function Home() {
         if (!blob) return setError("تعذر تنزيل المستند.");
         await supabase.from("submissions").update({ status: "in_review" }).eq("id", subId);
         chooseFile(new File([blob], sub.file_name, { type: blob.type }));
+        submissionRef.current = subId;
       })();
       return;
     }
@@ -344,6 +346,10 @@ function Home() {
       }
       sectionsLoaded.current = false;
       setCaseId(id);
+      if (submissionRef.current) {
+        void supabase.from("submissions").update({ review_case_id: id }).eq("id", submissionRef.current);
+        submissionRef.current = null;
+      }
       setDocs(docs);
       setRunConfig(effective);
       await execute(effective, docs, start, id);
