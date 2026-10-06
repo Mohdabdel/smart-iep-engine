@@ -9,21 +9,11 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as ReviewsRouteImport } from './routes/reviews'
 import { Route as ApiAuditRouteImport } from './routes/api/audit'
 import { Route as ApiReviewsRouteImport } from './routes/api/reviews'
+import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/_admin/index'
+import { Route as AuthenticatedAdminReviewsRouteImport } from './routes/_authenticated/_admin/reviews'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ReviewsRoute = ReviewsRouteImport.update({
-  id: '/reviews',
-  path: '/reviews',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiAuditRoute = ApiAuditRouteImport.update({
   id: '/api/audit',
   path: '/api/audit',
@@ -34,57 +24,59 @@ const ApiReviewsRoute = ApiReviewsRouteImport.update({
   path: '/api/reviews',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
+  id: '/_authenticated/_admin/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedAdminReviewsRoute =
+  AuthenticatedAdminReviewsRouteImport.update({
+    id: '/_authenticated/_admin/reviews',
+    path: '/reviews',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/reviews': typeof ReviewsRoute
   '/api/audit': typeof ApiAuditRoute
   '/api/reviews': typeof ApiReviewsRoute
+  '/reviews': typeof AuthenticatedAdminReviewsRoute
+  '/': typeof AuthenticatedAdminIndexRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/reviews': typeof ReviewsRoute
   '/api/audit': typeof ApiAuditRoute
   '/api/reviews': typeof ApiReviewsRoute
+  '/reviews': typeof AuthenticatedAdminReviewsRoute
+  '/': typeof AuthenticatedAdminIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/reviews': typeof ReviewsRoute
   '/api/audit': typeof ApiAuditRoute
   '/api/reviews': typeof ApiReviewsRoute
+  '/_authenticated/_admin/reviews': typeof AuthenticatedAdminReviewsRoute
+  '/_authenticated/_admin/': typeof AuthenticatedAdminIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/reviews' | '/api/audit' | '/api/reviews'
+  fullPaths: '/api/audit' | '/api/reviews' | '/reviews' | '/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/reviews' | '/api/audit' | '/api/reviews'
-  id: '__root__' | '/' | '/reviews' | '/api/audit' | '/api/reviews'
+  to: '/api/audit' | '/api/reviews' | '/reviews' | '/'
+  id:
+    | '__root__'
+    | '/api/audit'
+    | '/api/reviews'
+    | '/_authenticated/_admin/reviews'
+    | '/_authenticated/_admin/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  ReviewsRoute: typeof ReviewsRoute
   ApiAuditRoute: typeof ApiAuditRoute
   ApiReviewsRoute: typeof ApiReviewsRoute
+  AuthenticatedAdminReviewsRoute: typeof AuthenticatedAdminReviewsRoute
+  AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/reviews': {
-      id: '/reviews'
-      path: '/reviews'
-      fullPath: '/reviews'
-      preLoaderRoute: typeof ReviewsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/audit': {
       id: '/api/audit'
       path: '/api/audit'
@@ -99,14 +91,28 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiReviewsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/_admin/': {
+      id: '/_authenticated/_admin/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/_admin/reviews': {
+      id: '/_authenticated/_admin/reviews'
+      path: '/reviews'
+      fullPath: '/reviews'
+      preLoaderRoute: typeof AuthenticatedAdminReviewsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  ReviewsRoute: ReviewsRoute,
   ApiAuditRoute: ApiAuditRoute,
   ApiReviewsRoute: ApiReviewsRoute,
+  AuthenticatedAdminReviewsRoute: AuthenticatedAdminReviewsRoute,
+  AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
