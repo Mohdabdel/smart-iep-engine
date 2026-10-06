@@ -153,6 +153,9 @@ export type Database = {
           id: string
           learner_name: string | null
           note: string | null
+          report_shared: boolean
+          review_case_id: string | null
+          share_requested: boolean
           status: string
           updated_at: string
           uploader_id: string
@@ -164,6 +167,9 @@ export type Database = {
           id?: string
           learner_name?: string | null
           note?: string | null
+          report_shared?: boolean
+          review_case_id?: string | null
+          share_requested?: boolean
           status?: string
           updated_at?: string
           uploader_id: string
@@ -175,11 +181,22 @@ export type Database = {
           id?: string
           learner_name?: string | null
           note?: string | null
+          report_shared?: boolean
+          review_case_id?: string | null
+          share_requested?: boolean
           status?: string
           updated_at?: string
           uploader_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "submissions_review_case_id_fkey"
+            columns: ["review_case_id"]
+            isOneToOne: false
+            referencedRelation: "review_cases"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
@@ -204,6 +221,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_shared_report: { Args: { _sub: string }; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -212,6 +230,7 @@ export type Database = {
         Returns: boolean
       }
       is_approved: { Args: { _user_id: string }; Returns: boolean }
+      request_report_share: { Args: { _sub: string }; Returns: undefined }
     }
     Enums: {
       app_role: "admin" | "uploader"
