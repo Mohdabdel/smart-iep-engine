@@ -1,4 +1,6 @@
 import { authHeaders } from "@/lib/auth-header";
+import { supabase } from "@/integrations/supabase/client";
+import { SignOutButton } from "@/components/SignOutButton";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import {

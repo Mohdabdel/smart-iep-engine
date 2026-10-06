@@ -40,7 +40,7 @@ function UploadPage() {
     setErr(null);
     const ext = file.name.split(".").pop() ?? "bin";
     const path = `${user.id}/${crypto.randomUUID()}.${ext}`;
-    const up = await supabase.storage.from("submissions").upload(path, file, { contentType: file.type || undefined });
+    const up = await supabase.storage.from("submissions").upload(path, file, file.type ? { contentType: file.type } : {});
     if (up.error) {
       setErr("تعذر رفع الملف. حاول مرة أخرى.");
       setBusy(false);
