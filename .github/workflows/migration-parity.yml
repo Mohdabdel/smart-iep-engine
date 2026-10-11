@@ -25,3 +25,11 @@ jobs:
         run: bun run test
       - name: Production build (existing baseline configuration)
         run: bun run build
+      - name: Inspect server build artifacts (no deployment)
+        run: |
+          echo "Top-level build artifacts:"
+          ls -la .output 2>/dev/null || true
+          echo "Server entries:"
+          find .output -maxdepth 3 -type f \( -name 'index.mjs' -o -name 'index.js' -o -name 'package.json' \) -print 2>/dev/null | head -40
+          echo "Nitro configuration references:"
+          find .output -maxdepth 2 -type f -name '*.json' -print 2>/dev/null | head -20
