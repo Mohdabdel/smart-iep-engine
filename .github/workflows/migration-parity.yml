@@ -83,3 +83,18 @@ jobs:
           fi
           grep -qi '<html' /tmp/iep-response.html
           echo "HTTP smoke test passed"
+      - name: Verify protected API endpoints reject anonymous access
+        run: |
+          set -euo pipefail
+          PORT=32988 HOST=127.0.0.1 node .output/server/index.mjs > /tmp/iep-auth.log 2>&1 &
+          PID=$!
+          trap 'kill "$PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:32988/ > /dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          for endpoint in audit reviews; do
+            STATUS=$(curl -sS -o /tmp/iep-protected.json -w '%{http_code}' -X POST "http://127.0.0.1:32988/api/$endpoint" -H 'Content-Type: application/json' -d '{}')
+            echo "/api/$endpoint anonymous HTTP: $STATUS"
+            test "$STATUS" = "401"
+          done
