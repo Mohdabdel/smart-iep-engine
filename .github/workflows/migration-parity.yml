@@ -23,6 +23,11 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Unit tests
         run: bun run test
+      - name: Staging gate tests
+        run: node --test scripts/staging-gate.test.mjs
+      - name: Lockfile has no private registry URLs
+        run: |
+          if grep -n 'pkg.dev' bun.lock; then echo "bun.lock references a non-npmjs registry"; exit 1; fi
       - name: Production build (existing baseline configuration)
         run: bun run build
       - name: Inspect server build artifacts (no deployment)
@@ -98,3 +103,32 @@ jobs:
             echo "/api/$endpoint anonymous HTTP: $STATUS"
             test "$STATUS" = "401"
           done
+
+  rls-synthetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-only-throwaway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: ci-only-throwaway
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply stub + migrations and run synthetic RLS checks
+        run: |
+          set -euo pipefail
+          psql -X -q -v ON_ERROR_STOP=1 -f supabase/tests/00-supabase-stub.sql
+          for f in supabase/migrations/*.sql; do
+            echo "applying $f"
+            psql -X -q -v ON_ERROR_STOP=1 -f "$f"
+          done
+          psql -X -q -tA -v ON_ERROR_STOP=1 -f supabase/tests/10-staging-rls-synthetic.sql

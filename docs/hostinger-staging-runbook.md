@@ -9,12 +9,28 @@ Status: **prepared only**. No Hostinger app, DNS, credentials, or production rec
 - Do not set `iep-quality.masarhemmam.com` DNS until acceptance.
 
 ## 2. Build and start
-- Install Bun if supported by the Hostinger deployment environment. If Bun is unavailable, do **not** use `npm ci` (there is no npm lockfile); choose a compatible build method and verify lockfile reproducibility.
-- Install: `bun install --frozen-lockfile`
-- Build with `IEP_DEPLOY_TARGET=hostinger`: `bun run build`
-- Start: `node .output/server/index.mjs`
+- `bun.lock` tarball URLs point at registry.npmjs.org (previously Lovable's npm cache mirror). All 66 rewritten entries were verified: same name@version and identical `sha512` integrity on npmjs; versions are unchanged.
+- Install (no global Bun needed): `npx -y bun@1.3.13 install --frozen-lockfile`. Do **not** use `npm install`/`npm ci`: there is no npm lockfile, npm ignores `bun.lock`, and `npm install --package-lock-only` currently fails on this `package.json`.
+- Build with `IEP_DEPLOY_TARGET=hostinger`: `npx -y bun@1.3.13 run build`
+- Start (staging, gated): `node scripts/staging-gate.mjs` — never `node .output/server/index.mjs` directly on a public port.
 - Node runtime should honor `PORT` from the hosting environment. Verify this in staging; GitHub Actions confirms the entrypoint starts and serves HTTP locally.
 - Ensure build environment also has the `VITE_SUPABASE_*` **publishable** values; they are embedded at build time.
+
+## 2a. Staging access gate (`scripts/staging-gate.mjs`)
+Equivalent to Cloudflare Access without a DNS change (masarhemmam.com uses Hostinger nameservers).
+- HTTP Basic login → HMAC-signed session cookie (`iep_gate`, HttpOnly, Secure, SameSite=Lax) with server-verified expiry.
+- Failed logins throttled (5 per client / 50 global per 15 min → 429).
+- Nitro runs as a child bound to 127.0.0.1 on an ephemeral port and is preloaded with `scripts/staging-gate-inner.mjs`; requests without the per-boot inner secret get 403, so the inner port cannot bypass the gate.
+- Upstream failure → 502, upstream timeout → 504; the gate stays up.
+- Logs never contain passwords, Authorization values, cookies or tokens.
+- Required env (set by the owner in Hostinger only): `STAGING_GATE_USER`, `STAGING_GATE_PASS` (≥16 chars), `STAGING_GATE_SESSION_SECRET` (≥32 chars, different from the password), optional `STAGING_GATE_SESSION_TTL` (seconds, default 43200). The gate refuses to start without them.
+- Tests: `node --test scripts/staging-gate.test.mjs` (CI).
+
+## 2b. Staging database
+- Independent, empty Supabase project. Apply `supabase/migrations/*.sql` in order, then `supabase/staging/create-submissions-bucket.sql` (private bucket missing from migrations).
+- `handle_new_user` makes the **first** sign-up the admin: the owner signs up first, then disable public sign-ups (Auth → Providers → Email) and invite users.
+- Auth → URL Configuration: Site URL and Redirect URLs = `https://iep-staging.masarhemmam.com`. Google sign-in uses the Lovable Cloud broker and is out of scope for staging.
+- Synthetic RLS checks: `supabase/tests/10-staging-rls-synthetic.sql` (CI runs it on a throwaway Postgres with `00-supabase-stub.sql`; never run the stub against Supabase).
 
 ## 3. Secrets and configuration
 Use `.env.hostinger.example` as the names-only reference. Enter values in Hostinger secret/environment settings, not in source files or logs.
