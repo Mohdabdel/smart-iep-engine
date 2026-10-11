@@ -15,9 +15,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Install dependencies
-        run: npm ci
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies from committed lockfile
+        run: bun install --frozen-lockfile
       - name: Unit tests
-        run: npm test
+        run: bun run test
       - name: Production build (existing baseline configuration)
-        run: npm run build
+        run: bun run build
