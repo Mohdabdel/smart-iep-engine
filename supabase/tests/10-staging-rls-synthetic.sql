@@ -65,11 +65,61 @@ INSERT INTO public.submissions (id, uploader_id, file_path, file_name, review_ca
   ('22222222-2222-2222-2222-222222222222', :'UPL',   :'UPL'   || '/a.pdf', 'a.pdf', '11111111-1111-1111-1111-111111111111'),
   ('33333333-3333-3333-3333-333333333333', :'OTHER', :'OTHER' || '/b.pdf', 'b.pdf', NULL);
 
--- Sign-up trigger -----------------------------------------------------------
-SELECT pg_temp.check('first sign-up becomes the only admin',
-  (SELECT count(*) FROM public.user_roles WHERE role = 'admin') = 1
-  AND EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = :'ADMIN' AND role = 'admin'));
-SELECT pg_temp.check('later sign-ups are uploader + pending',
+-- Privilege matrix (exact; catches both missing and excess grants) ------------
+-- Expected table privileges for API roles on public tables.
+SELECT pg_temp.check('anon has no privileges on any public table',
+  NOT EXISTS (SELECT 1 FROM information_schema.role_table_grants
+              WHERE table_schema = 'public' AND grantee IN ('anon', 'PUBLIC')));
+SELECT pg_temp.check('authenticated table privileges are exactly the intended set',
+  (SELECT coalesce(string_agg(table_name || ':' || privilege_type, ',' ORDER BY table_name, privilege_type), '')
+     FROM information_schema.role_table_grants
+    WHERE table_schema = 'public' AND grantee = 'authenticated')
+  = 'profiles:SELECT,profiles:UPDATE,submissions:DELETE,submissions:INSERT,submissions:SELECT,submissions:UPDATE,user_roles:SELECT');
+SELECT pg_temp.check('no TRUNCATE/REFERENCES/TRIGGER for API roles anywhere in public',
+  NOT EXISTS (SELECT 1 FROM information_schema.role_table_grants
+              WHERE table_schema = 'public' AND grantee IN ('anon','authenticated','PUBLIC')
+                AND privilege_type IN ('TRUNCATE','REFERENCES','TRIGGER')));
+
+-- Expected EXECUTE privileges (role, function signature, allowed?).
+SELECT pg_temp.check(format('EXECUTE %s for %s = %s', fn, r, expected),
+                     has_function_privilege(r, fn, 'EXECUTE') = expected)
+FROM (VALUES
+  ('authenticated', 'public.has_role(uuid,public.app_role)', true),
+  ('authenticated', 'public.is_approved(uuid)',              true),
+  ('authenticated', 'public.request_report_share(uuid)',     true),
+  ('authenticated', 'public.get_shared_report(uuid)',        true),
+  ('authenticated', 'public.handle_new_user()',              false),
+  ('authenticated', 'public.bootstrap_first_admin(text)',    false),
+  ('anon',          'public.has_role(uuid,public.app_role)', false),
+  ('anon',          'public.is_approved(uuid)',              false),
+  ('anon',          'public.request_report_share(uuid)',     false),
+  ('anon',          'public.get_shared_report(uuid)',        false),
+  ('anon',          'public.handle_new_user()',              false),
+  ('anon',          'public.bootstrap_first_admin(text)',    false),
+  ('service_role',  'public.bootstrap_first_admin(text)',    true)
+) AS t(r, fn, expected);
+
+-- Sign-up and admin bootstrap -------------------------------------------------------
+SELECT pg_temp.check('no sign-up becomes admin automatically',
+  NOT EXISTS (SELECT 1 FROM public.user_roles WHERE role = 'admin'));
+SELECT pg_temp.check('every sign-up is uploader + pending',
+  (SELECT count(*) FROM public.user_roles WHERE role = 'uploader') = 4
+  AND (SELECT approval_status FROM public.profiles WHERE id = :'PEND') = 'pending'
+  AND (SELECT approval_status FROM public.profiles WHERE id = :'ADMIN') = 'pending');
+SELECT pg_temp.expect_denied('authenticated cannot call bootstrap_first_admin', 'authenticated', :'PEND',
+  $$SELECT public.bootstrap_first_admin('pending@example.test')$$);
+SELECT pg_temp.expect_denied('anon cannot call bootstrap_first_admin', 'anon', NULL,
+  $$SELECT public.bootstrap_first_admin('pending@example.test')$$);
+SELECT pg_temp.expect_denied('bootstrap rejects unknown email', 'postgres', NULL,
+  $$SELECT public.bootstrap_first_admin('nobody@example.test')$$, ARRAY['P0002']);
+SELECT public.bootstrap_first_admin(' ADMIN@example.test ') AS bootstrapped \gset
+SELECT pg_temp.check('operator bootstrap promotes the chosen account',
+  :'bootstrapped'::uuid = :'ADMIN'::uuid
+  AND (SELECT approval_status FROM public.profiles WHERE id = :'ADMIN') = 'approved'
+  AND (SELECT count(*) FROM public.user_roles WHERE role = 'admin') = 1);
+SELECT pg_temp.expect_denied('bootstrap refuses once an admin exists', 'postgres', NULL,
+  $$SELECT public.bootstrap_first_admin('pending@example.test')$$);
+SELECT pg_temp.check('later sign-ups are uploader + pending after bootstrap',
   (SELECT role::text FROM public.user_roles WHERE user_id = :'PEND') = 'uploader'
   AND (SELECT approval_status FROM public.profiles WHERE id = :'PEND') = 'pending');
 

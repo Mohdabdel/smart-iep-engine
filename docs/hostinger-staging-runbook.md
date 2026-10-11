@@ -28,9 +28,11 @@ Equivalent to Cloudflare Access without a DNS change (masarhemmam.com uses Hosti
 
 ## 2b. Staging database
 - Independent, empty Supabase project. Apply `supabase/migrations/*.sql` in order, then `supabase/staging/create-submissions-bucket.sql` (private bucket missing from migrations).
-- `handle_new_user` makes the **first** sign-up the admin: the owner signs up first, then disable public sign-ups (Auth → Providers → Email) and invite users.
+- Every sign-up is `uploader` + `pending` (migration `20261011140000`); nobody becomes admin automatically.
+- First admin (operator only, SQL editor as project owner): sign up in the app, then run `SELECT public.bootstrap_first_admin('your-email');`. It is not executable by `anon`/`authenticated`, and refuses once any admin exists. Then disable public sign-ups (Auth → Providers → Email) and approve/invite users from the admin UI.
+- Grants are explicit (migration `20261011140000`): `authenticated` may execute `has_role`/`is_approved`; no TRUNCATE/REFERENCES/TRIGGER for API roles; `anon` has nothing on public tables; the archive is service-role only.
 - Auth → URL Configuration: Site URL and Redirect URLs = `https://iep-staging.masarhemmam.com`. Google sign-in uses the Lovable Cloud broker and is out of scope for staging.
-- Synthetic RLS checks: `supabase/tests/10-staging-rls-synthetic.sql` (CI runs it on a throwaway Postgres with `00-supabase-stub.sql`; never run the stub against Supabase).
+- Synthetic RLS checks: `supabase/tests/10-staging-rls-synthetic.sql` (CI runs it on a throwaway Postgres with `00-supabase-stub.sql` in two modes — `expose` and `locked` default grants — and asserts the exact privilege matrix; never run the stub against Supabase).
 
 ## 3. Secrets and configuration
 Use `.env.hostinger.example` as the names-only reference. Enter values in Hostinger secret/environment settings, not in source files or logs.

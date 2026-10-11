@@ -107,6 +107,12 @@ jobs:
   rls-synthetic:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # expose: project default grants ON (catches excess privileges)
+        # locked: no default grants (catches missing EXECUTE / table grants)
+        grants_mode: [expose, locked]
     services:
       postgres:
         image: postgres:16
@@ -123,12 +129,14 @@ jobs:
       PGDATABASE: postgres
     steps:
       - uses: actions/checkout@v4
-      - name: Apply stub + migrations and run synthetic RLS checks
+      - name: Apply stub (${{ matrix.grants_mode }}) + migrations and run synthetic RLS checks
         run: |
           set -euo pipefail
-          psql -X -q -v ON_ERROR_STOP=1 -f supabase/tests/00-supabase-stub.sql
+          psql -X -q -v ON_ERROR_STOP=1 -v grants_mode=${{ matrix.grants_mode }} -f supabase/tests/00-supabase-stub.sql
           for f in supabase/migrations/*.sql; do
             echo "applying $f"
             psql -X -q -v ON_ERROR_STOP=1 -f "$f"
           done
-          psql -X -q -tA -v ON_ERROR_STOP=1 -f supabase/tests/10-staging-rls-synthetic.sql
+          psql -X -q -tA -v ON_ERROR_STOP=1 -f supabase/tests/10-staging-rls-synthetic.sql 2>&1 | tee /tmp/rls.log
+          echo "PASS count: $(grep -c 'PASS:' /tmp/rls.log)"
+          grep -q 'ALL RLS CHECKS PASSED' /tmp/rls.log
