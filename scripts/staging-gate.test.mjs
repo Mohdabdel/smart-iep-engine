@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { createGateServer, LoginLimiter, signSession, verifySession, COOKIE, INNER_HEADER } from "./staging-gate.mjs";
+import { createGateServer, LoginLimiter, signSession, verifySession, COOKIE, INNER_HEADER } from "./staging-gate-lib.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const USER = "synthetic-tester";

@@ -44,6 +44,7 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(bundle, { recursive: true });
 cpSync(nitroOut, path.join(bundle, "app"), { recursive: true });
 cpSync(path.join(root, "scripts/staging-gate.mjs"), path.join(bundle, "staging-gate.mjs"));
+cpSync(path.join(root, "scripts/staging-gate-lib.mjs"), path.join(bundle, "staging-gate-lib.mjs"));
 cpSync(path.join(root, "scripts/staging-gate-inner.mjs"), path.join(bundle, "staging-gate-inner.mjs"));
 
 // Externals Nitro traced into app/server/node_modules. Pin them at the bundle

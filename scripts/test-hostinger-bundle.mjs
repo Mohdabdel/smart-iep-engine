@@ -31,8 +31,10 @@ function request(port, { method = "GET", path: p = "/", headers = {} } = {}) {
 }
 const basic = (u, p) => ({ authorization: "Basic " + Buffer.from(`${u}:${p}`).toString("base64") });
 
+// Hostinger loads the entry through its own wrapper (process.argv[1] is not the
+// entry), so start it the same way: imported from another module.
 function start(env) {
-  const child = spawn(process.execPath, ["staging-gate.mjs"], { cwd: dir, env: { PATH: process.env.PATH, ...env }, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, ["--input-type=module", "-e", "await import('./staging-gate.mjs')"], { cwd: dir, env: { PATH: process.env.PATH, ...env }, stdio: ["ignore", "pipe", "pipe"] });
   let log = "";
   child.stdout.on("data", (d) => (log += d));
   child.stderr.on("data", (d) => (log += d));
@@ -41,7 +43,7 @@ function start(env) {
 
 try {
   execFileSync("unzip", ["-q", zip, "-d", dir]);
-  check("bundle has gate entry, inner preload and Nitro app", ["staging-gate.mjs", "staging-gate-inner.mjs", "app/server/index.mjs", "package-lock.json"].every((f) => existsSync(path.join(dir, f))));
+  check("bundle has gate entry, lib, inner preload and Nitro app", ["staging-gate.mjs", "staging-gate-lib.mjs", "staging-gate-inner.mjs", "app/server/index.mjs", "package-lock.json"].every((f) => existsSync(path.join(dir, f))));
   check("bundle has no .env", !existsSync(path.join(dir, ".env")));
 
   // What Hostinger's install step will do with npm: locked, integrity-checked.
@@ -104,6 +106,25 @@ try {
     check("spoofed inner header -> 403", spoof.status === 403);
   } else {
     check("inner Nitro port discovered from log", false);
+  }
+
+  // Host-provided PORT as a socket path (Passenger/LiteSpeed style).
+  {
+    const sock = path.join(dir, "gate.sock");
+    const s2 = start({ PORT: sock, STAGING_GATE_USER: USER, STAGING_GATE_PASS: PASS, STAGING_GATE_SESSION_SECRET: SECRET,
+      SUPABASE_URL: "https://luhpjheolgjfovnankxo.supabase.co", SUPABASE_PUBLISHABLE_KEY: "sb_publishable_synthetic_test_only" });
+    let st = 0;
+    for (let i = 0; i < 20 && st !== 401; i++) {
+      await new Promise((r) => setTimeout(r, 300));
+      st = await new Promise((resolve) => {
+        const rq = http.request({ socketPath: sock, path: "/" }, (res) => { res.resume(); resolve(res.statusCode); });
+        rq.on("error", () => resolve(0));
+        rq.end();
+      });
+    }
+    check("listens on a host-provided socket path PORT (401 without credentials)", st === 401);
+    s2.child.kill("SIGTERM");
+    await s2.exited;
   }
 
   const logs = s.log();
