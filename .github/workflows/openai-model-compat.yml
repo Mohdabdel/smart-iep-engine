@@ -46,12 +46,12 @@ jobs:
       - name: Model is listed for this API key
         run: |
           code=$(curl -s -o /tmp/model.json -w '%{http_code}' https://api.openai.com/v1/models/"$IEP_OPENAI_MODEL" -H "Authorization: Bearer $OPENAI_API_KEY")
-          detail=$(jq -r '[.error.code // empty, .error.type // empty] | join("/")' /tmp/model.json 2>/dev/null || true)
+          detail=$(jq -r '[.error.code // empty, .error.type // empty, (.error.message // "" | gsub("sk-[A-Za-z0-9_*-]+"; "[key]") | .[0:200])] | join(" | ")' /tmp/model.json 2>/dev/null || true)
           if [ "$code" = "200" ]; then
             echo "::notice title=Model check::$IEP_OPENAI_MODEL is available for this key (HTTP 200)"
           else
-            echo "::error title=Model check::GET /v1/models/$IEP_OPENAI_MODEL -> HTTP $code ${detail}"
-            exit 1
+            # Not fatal: restricted keys may lack "Models: Read" yet allow /v1/responses.
+            echo "::warning title=Model check::GET /v1/models/$IEP_OPENAI_MODEL -> HTTP $code ${detail}"
           fi
       - name: Live review parts via real code path (synthetic plan)
         run: |
