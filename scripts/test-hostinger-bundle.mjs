@@ -108,6 +108,23 @@ try {
     check("inner Nitro port discovered from log", false);
   }
 
+  // Cold start: the host spawns the process on the first request. The first
+  // authenticated request answered by the gate must reach the app (no 502).
+  {
+    const CPORT = PORT + 1;
+    const s3 = start({ PORT: String(CPORT), STAGING_GATE_USER: USER, STAGING_GATE_PASS: PASS, STAGING_GATE_SESSION_SECRET: SECRET,
+      SUPABASE_URL: "https://luhpjheolgjfovnankxo.supabase.co", SUPABASE_PUBLISHABLE_KEY: "sb_publishable_synthetic_test_only" });
+    let first = { status: 0 };
+    for (let i = 0; i < 100 && first.status === 0; i++) {
+      first = await request(CPORT, { headers: basic(USER, PASS) });
+      if (first.status === 0) await new Promise((r) => setTimeout(r, 20));
+    }
+    check("cold start: first authenticated request waits for the app (200, not 502)", first.status === 200, `status ${first.status}`);
+    check("app output is relayed to the host log", /\[app\]/.test(s3.log()) || /app ready in/.test(s3.log()));
+    s3.child.kill("SIGTERM");
+    await s3.exited;
+  }
+
   // Host-provided PORT as a socket path (Passenger/LiteSpeed style).
   {
     const sock = path.join(dir, "gate.sock");

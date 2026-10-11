@@ -112,6 +112,7 @@ export function createGateServer({
   innerSecret,
   limiter = new LoginLimiter(),
   upstreamTimeoutMs = 120_000,
+  readyTimeoutMs = 45_000,
   now = () => Date.now(),
   log = (msg) => console.log(`[staging-gate] ${msg}`),
   secureCookie = true,
@@ -174,6 +175,9 @@ export function createGateServer({
       deny(res, status, body);
     };
 
+    // Hosts may cold-start the process on the first request: hold the request
+    // (body stays buffered) until Nitro accepts connections, instead of 502.
+    const proceed = () => {
     if (!upstream.port) return fail(503, "Starting, try again shortly");
     const p = http.request(
       { host: upstream.host, port: upstream.port, path: req.url, method: req.method, headers, timeout: upstreamTimeoutMs },
@@ -201,6 +205,34 @@ export function createGateServer({
     });
     req.on("aborted", () => p.destroy());
     req.pipe(p);
+    };
+    if (!upstream.ready) return proceed();
+    let timer;
+    Promise.race([
+      upstream.ready,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("ready timeout")), readyTimeoutMs); }),
+    ]).then(
+      () => { clearTimeout(timer); proceed(); },
+      () => { clearTimeout(timer); log(`503 app not ready ${req.method}`); fail(503, "Starting, try again shortly"); },
+    );
+  });
+}
+
+/** Resolve once something accepts TCP connections on host:port. */
+export function waitForPort(host, port, { intervalMs = 150, timeoutMs = 60_000, isDead = () => false } = {}) {
+  const started = Date.now();
+  return new Promise((resolve, reject) => {
+    const attempt = () => {
+      if (isDead()) return reject(new Error("app exited"));
+      const sock = net.connect({ host, port });
+      sock.once("connect", () => { sock.destroy(); resolve(); });
+      sock.once("error", () => {
+        sock.destroy();
+        if (Date.now() - started > timeoutMs) return reject(new Error("app did not start"));
+        setTimeout(attempt, intervalMs);
+      });
+    };
+    attempt();
   });
 }
 
@@ -258,7 +290,10 @@ export async function main() {
     process.exit(1);
   }
   const innerSecret = randomBytes(32).toString("hex");
-  const upstream = { host: "127.0.0.1", port: 0 }; // filled once Nitro's port is chosen
+  // Requests that arrive before Nitro is up wait on `ready` (see createGateServer).
+  let markReady, markFailed;
+  const upstream = { host: "127.0.0.1", port: 0, ready: new Promise((res, rej) => { markReady = res; markFailed = rej; }) };
+  upstream.ready.catch(() => {});
 
   // 1. Public listener first.
   const server = createGateServer({ user, pass, sessionSecret, ttlSec, upstream, innerSecret });
@@ -282,9 +317,25 @@ export async function main() {
 
   const app = spawn(process.execPath, ["--import", path.join(here, "staging-gate-inner.mjs"), appEntry], {
     env: childEnv,
-    stdio: "inherit",
+    stdio: ["ignore", "pipe", "pipe"],
   });
+  // Re-emit app output through the gate process so the host's log view shows it.
+  for (const [stream, write] of [[app.stdout, (l) => console.log(l)], [app.stderr, (l) => console.error(l)]]) {
+    let buf = "";
+    stream.on("data", (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) { write(`[app] ${buf.slice(0, i)}`); buf = buf.slice(i + 1); }
+    });
+  }
+  let dead = false;
+  const startedAt = Date.now();
+  waitForPort("127.0.0.1", innerPort, { isDead: () => dead }).then(
+    () => { console.log(`[staging-gate] app ready in ${Date.now() - startedAt}ms`); markReady(); },
+    (e) => { console.error(`[staging-gate] app not ready: ${e.message}`); markFailed(e); },
+  );
   app.on("exit", (code, signal) => {
+    dead = true;
     console.error(`[staging-gate] app exited (${code ?? signal}); stopping gate`);
     process.exit(code || 1);
   });
