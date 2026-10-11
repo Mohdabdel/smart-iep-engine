@@ -30,3 +30,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Deployment secrets (tracked files must also be removed from the index)
+.env
+.env.*
+!.env.example
+!.env.*.example
