@@ -1,7 +1,6 @@
-import { createOpenAI } from "@ai-sdk/openai";
 import { Output, jsonSchema, streamText } from "ai";
 
-import { createLovableAiGatewayRunIdFetch } from "./gateway-run-id";
+import { createIepAiProvider } from "./ai-provider.server";
 import { POTENTIAL_CONTEXT_STATUS, contextBankPromptText } from "./functional-context-registry";
 import {
   CRITERIA_REGISTRY,
@@ -30,8 +29,6 @@ import {
   type ModelOutput,
 } from "./iep-schema";
 
-const GATEWAY_BASE_URL = "https://ai.gateway.lovable.dev";
-const MODEL = "openai/gpt-6-astra";
 
 export const IEP_SYSTEM_PROMPT = `# الدور
 أنت "محرك المراجعة الإشرافية الأولية لجودة الخطط التربوية الفردية". تنفّذ مراجعة أولية قريبة جداً من أسلوب المشرف التربوي الفعلي، ثم يراجع المشرف نتائجك سريعاً ويعدّل الاستثناءات ويعتمد التقرير. اكتب كل النصوص بالعربية، وأخرج JSON فقط مطابقاً للمخطط المرفق.
@@ -168,19 +165,10 @@ ${docsText}`;
 }
 
 export async function runIepAudit(config: ReviewConfig, docs: SupportingDoc[], keys: ModelKey[]): Promise<Partial<ModelOutput>> {
-  const apiKey = process.env["LOVABLE_API_KEY"];
-  if (!apiKey) throw new Error("لم يتم تهيئة مفتاح محرك الذكاء الاصطناعي على الخادم.");
-
-  const runIdFetch = createLovableAiGatewayRunIdFetch(undefined);
-  const provider = createOpenAI({
-    baseURL: `${GATEWAY_BASE_URL}/v1`,
-    apiKey,
-    headers: { "Lovable-API-Key": apiKey, "X-Lovable-AIG-SDK": "vercel-ai-sdk" },
-    fetch: runIdFetch.fetch,
-  });
+  const { provider, model } = createIepAiProvider();
 
   const result = streamText({
-    model: provider.responses(MODEL),
+    model: provider.responses(model),
     system: IEP_SYSTEM_PROMPT,
     prompt: buildUserPrompt(config, docs, keys),
     output: Output.object({ schema: jsonSchema<Partial<ModelOutput>>(buildScopedJsonSchema(config.review_type, keys)) }),
