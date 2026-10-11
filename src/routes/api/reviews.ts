@@ -54,12 +54,12 @@ export const Route = createFileRoute("/api/reviews")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const parsed = body.safeParse(await request.json().catch(() => null));
-        if (!parsed.success) return Response.json({ error: "طلب غير صالح." }, { status: 400 });
-        const b = parsed.data;
         const { requireAdmin } = await import("@/lib/require-admin.server");
         const gate = await requireAdmin(request);
         if (gate instanceof Response) return gate;
+        const parsed = body.safeParse(await request.json().catch(() => null));
+        if (!parsed.success) return Response.json({ error: "طلب غير صالح." }, { status: 400 });
+        const b = parsed.data;
         void hash;
         const owner = "admin-shared";
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
