@@ -1,0 +1,23 @@
+name: Migration parity checks
+on:
+  push:
+    branches:
+      - migration/hostinger-parity
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Production build (existing baseline configuration)
+        run: npm run build
