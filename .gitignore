@@ -36,3 +36,6 @@ dist-ssr
 .env.*
 !.env.example
 !.env.*.example
+
+# Hostinger upload bundle (built in CI)
+dist-hostinger/

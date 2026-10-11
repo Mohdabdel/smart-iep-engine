@@ -104,6 +104,41 @@ jobs:
             test "$STATUS" = "401"
           done
 
+  bundle-synthetic:
+    # Builds and smoke-tests the Hostinger upload bundle with SYNTHETIC public
+    # values (no real keys). Proves the packaging + gate path on every push.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      IEP_DEPLOY_TARGET: hostinger
+      VITE_SUPABASE_URL: https://luhpjheolgjfovnankxo.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_synthetic_ci_only
+      VITE_SUPABASE_PROJECT_ID: luhpjheolgjfovnankxo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+      - name: Drop committed .env (points at another project)
+        run: rm -f .env
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Assemble bundle (safety scan)
+        run: node scripts/build-hostinger-bundle.mjs
+      - name: Smoke-test extracted bundle
+        run: node scripts/test-hostinger-bundle.mjs dist-hostinger/iep-staging-bundle.zip
+      - name: Negative control - production-pointing build must be rejected
+        run: |
+          set -euo pipefail
+          git checkout -- .env
+          rm -rf .output
+          env -u VITE_SUPABASE_URL -u VITE_SUPABASE_PUBLISHABLE_KEY -u VITE_SUPABASE_PROJECT_ID IEP_DEPLOY_TARGET=hostinger bun run build > /dev/null
+          if node scripts/build-hostinger-bundle.mjs; then echo "bundle accepted a non-staging build"; exit 1; fi
+          echo "rejected as expected"
+
   rls-synthetic:
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -16,6 +16,24 @@ Status: **prepared only**. No Hostinger app, DNS, credentials, or production rec
 - Node runtime should honor `PORT` from the hosting environment. Verify this in staging; GitHub Actions confirms the entrypoint starts and serves HTTP locally.
 - Ensure build environment also has the `VITE_SUPABASE_*` **publishable** values; they are embedded at build time.
 
+## 1a. Deployment path: prebuilt upload bundle (chosen)
+Hostinger's Git deploy only offers npm/yarn/pnpm and package.json scripts; `npm install` fails on this
+package.json and yarn/pnpm ignore `bun.lock` (45 of 80 direct deps drift). So staging is deployed as a
+**prebuilt bundle** via hPanel → Web Apps → *Upload your files* (verified: framework "Other", build
+command "None", free-text entry file):
+- CI workflow `Hostinger staging bundle` builds with Bun + frozen `bun.lock`, removes the committed `.env`,
+  embeds only the staging URL + publishable key (repo **variables** `STAGING_SUPABASE_URL`,
+  `STAGING_SUPABASE_PUBLISHABLE_KEY`), assembles `iep-staging-bundle.zip`, and smoke-tests it.
+- The bundle scan fails on any `.env`, secret-key pattern, non-anon JWT, the production project ref, or a
+  missing staging ref.
+- Bundle layout: `staging-gate.mjs` (entry), `staging-gate-inner.mjs`, `app/` (Nitro output),
+  `package.json` + `package-lock.json` pinning only Nitro's traced externals (exact + integrity).
+- hPanel settings: Framework **Other**, Node **22.x**, build command **None**, package manager **npm**,
+  output directory **empty**, entry file **`staging-gate.mjs`**.
+- Runtime env (owner enters in Hostinger only): `STAGING_GATE_USER`, `STAGING_GATE_PASS`,
+  `STAGING_GATE_SESSION_SECRET`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
+  `NODE_ENV=production`, and AI provider vars when enabled.
+
 ## 2a. Staging access gate (`scripts/staging-gate.mjs`)
 Equivalent to Cloudflare Access without a DNS change (masarhemmam.com uses Hostinger nameservers).
 - HTTP Basic login → HMAC-signed session cookie (`iep_gate`, HttpOnly, Secure, SameSite=Lax) with server-verified expiry.

@@ -1,0 +1,66 @@
+name: Hostinger staging bundle
+# Builds the prebuilt upload bundle for the private Hostinger staging app with
+# Bun and the committed bun.lock (frozen), then smoke-tests it on Node 22.
+# Only PUBLIC Supabase values are used at build time (repository variables,
+# not secrets): the staging project URL and its publishable key. Server
+# secrets (service_role, gate credentials, AI keys) live only in Hostinger.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - migration/hostinger-parity
+permissions:
+  contents: read
+jobs:
+  bundle:
+    # Skip silently on push until the owner has configured the public staging values.
+    if: ${{ vars.STAGING_SUPABASE_URL != '' && vars.STAGING_SUPABASE_PUBLISHABLE_KEY != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      IEP_DEPLOY_TARGET: hostinger
+      NODE_ENV: production
+      VITE_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+      VITE_SUPABASE_PROJECT_ID: luhpjheolgjfovnankxo
+      IEP_EXPECTED_SUPABASE_REF: luhpjheolgjfovnankxo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+      - name: Guard build inputs (staging project only, publishable key only)
+        run: |
+          set -euo pipefail
+          test "$VITE_SUPABASE_URL" = "https://luhpjheolgjfovnankxo.supabase.co" || { echo "STAGING_SUPABASE_URL is not the staging project"; exit 1; }
+          case "$VITE_SUPABASE_PUBLISHABLE_KEY" in
+            sb_publishable_*) ;;
+            eyJ*) role=$(echo "$VITE_SUPABASE_PUBLISHABLE_KEY" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null | grep -o '"role":"[a-z_]*"' || true)
+                  test "$role" = '"role":"anon"' || { echo "publishable key is not an anon key"; exit 1; } ;;
+            *) echo "unexpected publishable key format"; exit 1 ;;
+          esac
+          # The committed .env points at another project; never let it into this build.
+          rm -f .env .env.local .env.production
+      - name: Install dependencies (frozen bun.lock)
+        run: bun install --frozen-lockfile
+      - name: Unit tests
+        run: bun run test
+      - name: Gate tests
+        run: node --test scripts/staging-gate.test.mjs
+      - name: Build (Nitro node-server)
+        run: bun run build
+      - name: Assemble bundle (safety scan included)
+        run: node scripts/build-hostinger-bundle.mjs
+      - name: Smoke-test extracted bundle on Node 22
+        run: node scripts/test-hostinger-bundle.mjs dist-hostinger/iep-staging-bundle.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iep-staging-bundle-${{ github.sha }}
+          path: |
+            dist-hostinger/iep-staging-bundle.zip
+            dist-hostinger/iep-staging-bundle/BUNDLE-MANIFEST.json
+          retention-days: 14
+          if-no-files-found: error

@@ -23,6 +23,7 @@ import { spawn } from "node:child_process";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { existsSync } from "node:fs";
 
 export const COOKIE = "iep_gate";
 export const INNER_HEADER = "x-iep-gate-inner";
@@ -202,6 +203,18 @@ export function createGateServer({
   });
 }
 
+/**
+ * Nitro entry next to the gate. Two layouts are supported:
+ *   repo checkout:     scripts/staging-gate.mjs  -> ../.output/server/index.mjs
+ *   Hostinger bundle:  staging-gate.mjs          -> app/server/index.mjs
+ */
+export function resolveAppEntry(here) {
+  for (const candidate of [path.join(here, "app/server/index.mjs"), path.join(here, "../.output/server/index.mjs")]) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 function freePort() {
   return new Promise((resolve, reject) => {
     const s = net.createServer();
@@ -230,7 +243,11 @@ async function main() {
   }
 
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const root = path.resolve(here, "..");
+  const appEntry = resolveAppEntry(here);
+  if (!appEntry) {
+    console.error("[staging-gate] refusing to start: Nitro entry not found (app/server/index.mjs or ../.output/server/index.mjs)");
+    process.exit(1);
+  }
   const innerPort = await freePort();
   const innerSecret = randomBytes(32).toString("hex");
 
@@ -239,7 +256,7 @@ async function main() {
   delete childEnv.STAGING_GATE_SESSION_SECRET;
   childEnv.STAGING_GATE_INNER_SECRET = innerSecret;
 
-  const app = spawn(process.execPath, ["--import", path.join(here, "staging-gate-inner.mjs"), path.join(root, ".output/server/index.mjs")], {
+  const app = spawn(process.execPath, ["--import", path.join(here, "staging-gate-inner.mjs"), appEntry], {
     env: childEnv,
     stdio: "inherit",
   });
