@@ -26,7 +26,7 @@ command "None", free-text entry file):
   `STAGING_SUPABASE_PUBLISHABLE_KEY`), assembles `iep-staging-bundle.zip`, and smoke-tests it.
 - The bundle scan fails on any `.env`, secret-key pattern, non-anon JWT, the production project ref, or a
   missing staging ref.
-- Bundle layout: `staging-gate.mjs` (entry), `staging-gate-inner.mjs`, `app/` (Nitro output),
+- Bundle layout: `staging-gate.mjs` (entry), `staging-gate-lib.mjs`, `app/` (Nitro output),
   `package.json` + `package-lock.json` pinning only Nitro's traced externals (exact + integrity).
 - hPanel settings: Framework **Other**, Node **22.x**, build command **None**, package manager **npm**,
   output directory **empty**, entry file **`staging-gate.mjs`**.
@@ -38,8 +38,8 @@ command "None", free-text entry file):
 Equivalent to Cloudflare Access without a DNS change (masarhemmam.com uses Hostinger nameservers).
 - HTTP Basic login → HMAC-signed session cookie (`iep_gate`, HttpOnly, Secure, SameSite=Lax) with server-verified expiry.
 - Failed logins throttled (5 per client / 50 global per 15 min → 429).
-- Nitro runs as a child bound to 127.0.0.1 on an ephemeral port and is preloaded with `scripts/staging-gate-inner.mjs`; requests without the per-boot inner secret get 403, so the inner port cannot bypass the gate.
-- Upstream failure → 502, upstream timeout → 504; the gate stays up.
+- Nitro is loaded **in the same process**; its `listen()` is intercepted so it never opens a socket, and the gate hands authenticated requests to Nitro's handler directly. There is no inner port to bypass (Hostinger isolates loopback TCP between processes, which broke the earlier child-process design).
+- Cold start: requests wait (≤45 s) until the app is loaded; app error → 502, app timeout → 504; the gate stays up.
 - Logs never contain passwords, Authorization values, cookies or tokens.
 - Required env (set by the owner in Hostinger only): `STAGING_GATE_USER`, `STAGING_GATE_PASS` (≥16 chars), `STAGING_GATE_SESSION_SECRET` (≥32 chars, different from the password), optional `STAGING_GATE_SESSION_TTL` (seconds, default 43200). The gate refuses to start without them.
 - Tests: `node --test scripts/staging-gate.test.mjs` (CI).

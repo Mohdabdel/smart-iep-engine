@@ -7,7 +7,7 @@
 //
 // Bundle layout (Hostinger "upload files", framework "Other", build command
 // "none", entry file "staging-gate.mjs"):
-//   staging-gate.mjs, staging-gate-inner.mjs   access gate (entry point)
+//   staging-gate.mjs, access gate (entry point)
 //   app/                                        Nitro .output (server + public)
 //   package.json, package-lock.json             no runtime deps except the
 //                                               exact, integrity-locked ones
@@ -45,7 +45,6 @@ mkdirSync(bundle, { recursive: true });
 cpSync(nitroOut, path.join(bundle, "app"), { recursive: true });
 cpSync(path.join(root, "scripts/staging-gate.mjs"), path.join(bundle, "staging-gate.mjs"));
 cpSync(path.join(root, "scripts/staging-gate-lib.mjs"), path.join(bundle, "staging-gate-lib.mjs"));
-cpSync(path.join(root, "scripts/staging-gate-inner.mjs"), path.join(bundle, "staging-gate-inner.mjs"));
 
 // Externals Nitro traced into app/server/node_modules. Pin them at the bundle
 // root too (exact versions + lockfile) in case the host strips nested node_modules.

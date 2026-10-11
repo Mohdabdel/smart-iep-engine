@@ -14,6 +14,7 @@ let failures = 0;
 const results = [];
 const check = (name, ok, extra = "") => {
   results.push(`${ok ? "PASS" : "FAIL"}: ${name}${extra ? ` (${extra})` : ""}`);
+  if (process.env.BUNDLE_TEST_VERBOSE) console.error(results.at(-1));
   if (!ok) failures++;
 };
 
@@ -43,7 +44,7 @@ function start(env) {
 
 try {
   execFileSync("unzip", ["-q", zip, "-d", dir]);
-  check("bundle has gate entry, lib, inner preload and Nitro app", ["staging-gate.mjs", "staging-gate-lib.mjs", "staging-gate-inner.mjs", "app/server/index.mjs", "package-lock.json"].every((f) => existsSync(path.join(dir, f))));
+  check("bundle has gate entry, lib and Nitro app", ["staging-gate.mjs", "staging-gate-lib.mjs", "app/server/index.mjs", "package-lock.json"].every((f) => existsSync(path.join(dir, f))));
   check("bundle has no .env", !existsSync(path.join(dir, ".env")));
 
   // What Hostinger's install step will do with npm: locked, integrity-checked.
@@ -99,13 +100,10 @@ try {
   check("forged session -> 401", (await request(PORT, { headers: { cookie: "iep_gate=eyJ2IjoxLCJleHAiOjk5OTk5OTk5OTl9.forged" } })).status === 401);
   check("noindex header on gated responses", /noindex/.test(ok.headers["x-robots-tag"] || ""));
 
+  check("Nitro loaded in-process (no inner TCP port)", /app loaded in-process/.test(s.log()) && !inner);
   if (inner) {
     const direct = await request(Number(inner));
-    check("direct request to inner Nitro port -> 403", direct.status === 403, `port ${inner}`);
-    const spoof = await request(Number(inner), { headers: { "x-iep-gate-inner": "0".repeat(64) } });
-    check("spoofed inner header -> 403", spoof.status === 403);
-  } else {
-    check("inner Nitro port discovered from log", false);
+    check("no reachable inner Nitro port", direct.status === 0, `port ${inner} -> ${direct.status}`);
   }
 
   // Cold start: the host spawns the process on the first request. The first
@@ -120,7 +118,7 @@ try {
       if (first.status === 0) await new Promise((r) => setTimeout(r, 20));
     }
     check("cold start: first authenticated request waits for the app (200, not 502)", first.status === 200, `status ${first.status}`);
-    check("app output is relayed to the host log", /\[app\]/.test(s3.log()) || /app ready in/.test(s3.log()));
+    check("cold start logged app load", /app loaded in-process/.test(s3.log()));
     s3.child.kill("SIGTERM");
     await s3.exited;
   }

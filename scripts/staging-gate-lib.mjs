@@ -1,32 +1,30 @@
 // Private staging access gate for the Hostinger Node build.
 //
 // Puts HTTP Basic login + signed, expiring sessions in front of the Nitro
-// server. Fails closed: it refuses to start without its secrets.
+// app. Fails closed: it refuses to start without its secrets.
 //
 //   STAGING_GATE_USER            login name
 //   STAGING_GATE_PASS            login password (>= 16 chars)
 //   STAGING_GATE_SESSION_SECRET  HMAC key for session cookies (>= 32 chars,
 //                                independent of the password)
 //   STAGING_GATE_SESSION_TTL     session lifetime in seconds (default 43200)
-//   PORT / HOST                  public listener (Hostinger sets PORT)
+//   PORT / HOST                  public listener (host-provided port or socket)
 //
-// The Nitro server is started as a child process bound to 127.0.0.1 on an
-// ephemeral port and preloaded with staging-gate-inner.mjs, which rejects any
-// request that does not carry a per-boot secret only the gate knows. Hitting
-// the inner port directly therefore returns 403.
+// Nitro runs IN THE SAME PROCESS. Its server's listen() is intercepted so it
+// never opens a socket; the gate hands authenticated requests straight to
+// Nitro's request handler. There is no inner port at all, so nothing can
+// bypass the gate (and it works on hosts that isolate loopback TCP between
+// processes, which is what broke the earlier child-process design).
 //
 // Nothing secret is ever logged: no passwords, Authorization headers,
 // cookies, session tokens or query strings.
 import http from "node:http";
-import net from "node:net";
-import { spawn } from "node:child_process";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { existsSync } from "node:fs";
 
 export const COOKIE = "iep_gate";
-export const INNER_HEADER = "x-iep-gate-inner";
 
 function safeEqual(a, b) {
   const x = Buffer.from(String(a));
@@ -74,6 +72,46 @@ function stripCookie(header, name) {
   return kept.length ? kept.join("; ") : undefined;
 }
 
+/** Replace/remove a header in both req.headers and req.rawHeaders. */
+function setRequestHeader(req, name, value) {
+  const lower = name.toLowerCase();
+  if (value === undefined) delete req.headers[lower];
+  else req.headers[lower] = value;
+  const raw = req.rawHeaders;
+  for (let i = raw.length - 2; i >= 0; i -= 2) if (raw[i].toLowerCase() === lower) raw.splice(i, 2);
+  if (value !== undefined) raw.push(name, value);
+}
+
+/** Make every response carry noindex and (optionally) the new session cookie. */
+function decorateResponse(res, extraCookie) {
+  res.setHeader("x-robots-tag", "noindex, nofollow");
+  if (!extraCookie) return;
+  const origWriteHead = res.writeHead;
+  const addCookie = () => {
+    const cur = res.getHeader("set-cookie");
+    res.setHeader("set-cookie", [].concat(cur || [], extraCookie));
+  };
+  res.writeHead = function (status, ...rest) {
+    // Fold headers passed to writeHead into setHeader so our cookie merges.
+    let headers = rest[rest.length - 1];
+    if (headers && typeof headers === "object") {
+      rest.pop();
+      if (Array.isArray(headers)) {
+        const pairs = Array.isArray(headers[0]) ? headers : headers.reduce((a, v, i) => (i % 2 ? a : [...a, [v, headers[i + 1]]]), []);
+        for (const [k, v] of pairs) {
+          if (String(k).toLowerCase() === "set-cookie") res.appendHeader ? res.appendHeader(k, v) : res.setHeader(k, [].concat(res.getHeader(k) || [], v));
+          else res.setHeader(k, v);
+        }
+      } else {
+        for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
+      }
+    }
+    addCookie();
+    res.setHeader("x-robots-tag", "noindex, nofollow");
+    return origWriteHead.call(this, status, ...rest);
+  };
+}
+
 /** Fixed-window failed-login limiter, per client and global. */
 export class LoginLimiter {
   constructor({ perClient = 5, global = 50, windowMs = 15 * 60 * 1000, now = () => Date.now() } = {}) {
@@ -103,15 +141,19 @@ export class LoginLimiter {
   }
 }
 
+/**
+ * @param app {{ ready: Promise<void>, dispatch: (req, res) => void }}
+ *   ready resolves when the in-process app is loaded; dispatch hands a
+ *   request to it. Requests wait for `ready` (cold start), up to readyTimeoutMs.
+ */
 export function createGateServer({
   user,
   pass,
   sessionSecret,
   ttlSec = 43200,
-  upstream, // { host, port }
-  innerSecret,
+  app,
   limiter = new LoginLimiter(),
-  upstreamTimeoutMs = 120_000,
+  appTimeoutMs = 180_000,
   readyTimeoutMs = 45_000,
   now = () => Date.now(),
   log = (msg) => console.log(`[staging-gate] ${msg}`),
@@ -126,6 +168,7 @@ export function createGateServer({
   }
 
   function deny(res, status, body, extra = {}) {
+    if (res.headersSent) return res.destroy();
     res.writeHead(status, {
       "content-type": "text/plain; charset=utf-8",
       "cache-control": "no-store",
@@ -159,80 +202,42 @@ export function createGateServer({
       log("login ok, session issued");
     }
 
-    const headers = { ...req.headers };
-    delete headers[INNER_HEADER];
-    if (creds !== null) delete headers.authorization; // never forward gate credentials
-    const cookie = stripCookie(headers.cookie, COOKIE);
-    if (cookie) headers.cookie = cookie;
-    else delete headers.cookie;
-    headers[INNER_HEADER] = innerSecret;
+    // Never pass gate credentials or the gate cookie to the app.
+    if (creds !== null) setRequestHeader(req, "Authorization", undefined);
+    setRequestHeader(req, "Cookie", stripCookie(req.headers.cookie, COOKIE));
 
-    let done = false;
-    const fail = (status, body) => {
-      if (done) return;
-      done = true;
-      if (res.headersSent) return res.destroy();
-      deny(res, status, body);
-    };
+    const cookie = issueSession
+      ? `${COOKIE}=${signSession(sessionSecret, { now: now(), ttlSec })}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${ttlSec}${secureCookie ? "; Secure" : ""}`
+      : null;
 
-    // Hosts may cold-start the process on the first request: hold the request
-    // (body stays buffered) until Nitro accepts connections, instead of 502.
-    const proceed = () => {
-    if (!upstream.port) return fail(503, "Starting, try again shortly");
-    const p = http.request(
-      { host: upstream.host, port: upstream.port, path: req.url, method: req.method, headers, timeout: upstreamTimeoutMs },
-      (r) => {
-        const out = { ...r.headers, "x-robots-tag": "noindex, nofollow" };
-        if (issueSession) {
-          const flags = `Path=/; HttpOnly; SameSite=Lax; Max-Age=${ttlSec}${secureCookie ? "; Secure" : ""}`;
-          const c = `${COOKIE}=${signSession(sessionSecret, { now: now(), ttlSec })}; ${flags}`;
-          out["set-cookie"] = [].concat(r.headers["set-cookie"] || [], c);
-        }
-        done = true;
-        res.writeHead(r.statusCode || 502, out);
-        r.pipe(res);
-        r.on("error", () => res.destroy());
-      },
-    );
-    p.on("timeout", () => {
-      p.destroy();
-      log(`504 upstream timeout ${req.method}`);
-      fail(504, "Upstream timeout");
-    });
-    p.on("error", () => {
-      log(`502 upstream unavailable ${req.method}`);
-      fail(502, "Upstream unavailable");
-    });
-    req.on("aborted", () => p.destroy());
-    req.pipe(p);
-    };
-    if (!upstream.ready) return proceed();
     let timer;
-    Promise.race([
-      upstream.ready,
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("ready timeout")), readyTimeoutMs); }),
-    ]).then(
-      () => { clearTimeout(timer); proceed(); },
-      () => { clearTimeout(timer); log(`503 app not ready ${req.method}`); fail(503, "Starting, try again shortly"); },
-    );
-  });
-}
-
-/** Resolve once something accepts TCP connections on host:port. */
-export function waitForPort(host, port, { intervalMs = 150, timeoutMs = 60_000, isDead = () => false } = {}) {
-  const started = Date.now();
-  return new Promise((resolve, reject) => {
-    const attempt = () => {
-      if (isDead()) return reject(new Error("app exited"));
-      const sock = net.connect({ host, port });
-      sock.once("connect", () => { sock.destroy(); resolve(); });
-      sock.once("error", () => {
-        sock.destroy();
-        if (Date.now() - started > timeoutMs) return reject(new Error("app did not start"));
-        setTimeout(attempt, intervalMs);
-      });
+    const go = () => {
+      clearTimeout(timer);
+      decorateResponse(res, cookie);
+      const t = setTimeout(() => {
+        log(`504 app timeout ${req.method}`);
+        deny(res, 504, "App timeout");
+      }, appTimeoutMs);
+      res.on("finish", () => clearTimeout(t));
+      res.on("close", () => clearTimeout(t));
+      try {
+        app.dispatch(req, res);
+      } catch {
+        clearTimeout(t);
+        log(`502 app error ${req.method}`);
+        deny(res, 502, "App error");
+      }
     };
-    attempt();
+    Promise.race([
+      app.ready,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("ready timeout")), readyTimeoutMs);
+      }),
+    ]).then(go, () => {
+      clearTimeout(timer);
+      log(`503 app not ready ${req.method}`);
+      deny(res, 503, "Starting, try again shortly");
+    });
   });
 }
 
@@ -248,24 +253,42 @@ export function resolveAppEntry(here) {
   return null;
 }
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.listen(0, "127.0.0.1", () => {
-      const { port } = s.address();
-      s.close(() => resolve(port));
+/**
+ * Load a Node server entry in-process without letting it open a socket.
+ * The first http.Server that calls listen() (other than `except`) is captured.
+ */
+export function captureInProcessServer(importEntry, { except } = {}) {
+  const origListen = http.Server.prototype.listen;
+  let resolveServer, rejectServer;
+  const captured = new Promise((res, rej) => { resolveServer = res; rejectServer = rej; });
+  let done = false;
+  http.Server.prototype.listen = function (...args) {
+    if (done || this === except) return origListen.apply(this, args);
+    done = true;
+    http.Server.prototype.listen = origListen;
+    // Report a plausible address to frameworks that print it after listen().
+    this.address = () => ({ address: "in-process", family: "IPv4", port: 0 });
+    const cb = args.find((a) => typeof a === "function");
+    setImmediate(() => {
+      this.emit("listening");
+      if (cb) cb();
     });
-    s.on("error", reject);
-  });
+    resolveServer(this);
+    return this;
+  };
+  Promise.resolve()
+    .then(importEntry)
+    .catch((e) => {
+      http.Server.prototype.listen = origListen;
+      rejectServer(e);
+    });
+  return captured;
 }
 
 /**
  * Start the gate. Called unconditionally by staging-gate.mjs (the entry file):
- * Hostinger loads the entry through its own wrapper, so an
- * "is this the main module?" guard would never fire.
- *
- * The public listener is bound FIRST (hosts may require listen() within a few
- * seconds and may hand over PORT as a socket path); Nitro starts afterwards.
+ * hosts load the entry through their own wrapper, so an "is this the main
+ * module?" guard would never fire. The public listener is bound FIRST.
  */
 export async function main() {
   const user = process.env.STAGING_GATE_USER;
@@ -282,6 +305,9 @@ export async function main() {
     console.error(`[staging-gate] refusing to start: ${problems.join("; ")}`);
     process.exit(1);
   }
+  // The app shares this process: keep gate secrets out of its environment.
+  delete process.env.STAGING_GATE_PASS;
+  delete process.env.STAGING_GATE_SESSION_SECRET;
 
   const here = path.dirname(fileURLToPath(import.meta.url));
   const appEntry = resolveAppEntry(here);
@@ -289,56 +315,46 @@ export async function main() {
     console.error("[staging-gate] refusing to start: Nitro entry not found (app/server/index.mjs or ../.output/server/index.mjs)");
     process.exit(1);
   }
-  const innerSecret = randomBytes(32).toString("hex");
-  // Requests that arrive before Nitro is up wait on `ready` (see createGateServer).
+
   let markReady, markFailed;
-  const upstream = { host: "127.0.0.1", port: 0, ready: new Promise((res, rej) => { markReady = res; markFailed = rej; }) };
-  upstream.ready.catch(() => {});
+  const ready = new Promise((res, rej) => { markReady = res; markFailed = rej; });
+  ready.catch(() => {});
+  let appServer = null;
+  const app = { ready, dispatch: (req, res) => appServer.emit("request", req, res) };
 
   // 1. Public listener first.
-  const server = createGateServer({ user, pass, sessionSecret, ttlSec, upstream, innerSecret });
+  const server = createGateServer({ user, pass, sessionSecret, ttlSec, app });
   const rawPort = process.env.PORT || "3000";
   const numeric = /^\d+$/.test(rawPort);
-  const onListen = () =>
-    console.log(`[staging-gate] listening (${numeric ? `port ${rawPort}` : "host-provided socket"})`);
+  const onListen = () => console.log(`[staging-gate] listening (${numeric ? `port ${rawPort}` : "host-provided socket"})`);
   if (numeric) server.listen(Number(rawPort), process.env.HOST || "0.0.0.0", onListen);
   else server.listen(rawPort, onListen);
 
-  // 2. Then Nitro on a private loopback port.
-  const innerPort = await freePort();
-  upstream.port = innerPort;
-  const childEnv = { ...process.env, PORT: String(innerPort), HOST: "127.0.0.1", NITRO_PORT: String(innerPort), NITRO_HOST: "127.0.0.1" };
-  delete childEnv.STAGING_GATE_PASS;
-  delete childEnv.STAGING_GATE_SESSION_SECRET;
-  // Host loaders injected via NODE_OPTIONS can hijack listen() in the child too.
-  if (childEnv.NODE_OPTIONS) console.log("[staging-gate] NODE_OPTIONS present; not passed to the app process");
-  delete childEnv.NODE_OPTIONS;
-  childEnv.STAGING_GATE_INNER_SECRET = innerSecret;
-
-  const app = spawn(process.execPath, ["--import", path.join(here, "staging-gate-inner.mjs"), appEntry], {
-    env: childEnv,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  // Re-emit app output through the gate process so the host's log view shows it.
-  for (const [stream, write] of [[app.stdout, (l) => console.log(l)], [app.stderr, (l) => console.error(l)]]) {
-    let buf = "";
-    stream.on("data", (d) => {
-      buf += d;
-      let i;
-      while ((i = buf.indexOf("\n")) >= 0) { write(`[app] ${buf.slice(0, i)}`); buf = buf.slice(i + 1); }
+  // Always exit on host stop/restart signals. The in-process app may try a
+  // graceful close of a server that never listened; don't let that hang.
+  for (const sig of ["SIGTERM", "SIGINT"]) {
+    process.once(sig, () => {
+      server.close();
+      setTimeout(() => process.exit(0), 2000).unref();
     });
   }
-  let dead = false;
+
+  // 2. Load Nitro in-process; it never binds a socket.
   const startedAt = Date.now();
-  waitForPort("127.0.0.1", innerPort, { isDead: () => dead }).then(
-    () => { console.log(`[staging-gate] app ready in ${Date.now() - startedAt}ms`); markReady(); },
-    (e) => { console.error(`[staging-gate] app not ready: ${e.message}`); markFailed(e); },
+  const savedPort = process.env.PORT;
+  process.env.PORT = "0"; // Nitro reads PORT at import; its listen() is intercepted anyway
+  captureInProcessServer(() => import(pathToFileURL(appEntry).href), { except: server }).then(
+    (s) => {
+      if (savedPort === undefined) delete process.env.PORT;
+      else process.env.PORT = savedPort;
+      appServer = s;
+      console.log(`[staging-gate] app loaded in-process in ${Date.now() - startedAt}ms`);
+      markReady();
+    },
+    (e) => {
+      console.error(`[staging-gate] app failed to load: ${e && e.message}`);
+      markFailed(e);
+    },
   );
-  app.on("exit", (code, signal) => {
-    dead = true;
-    console.error(`[staging-gate] app exited (${code ?? signal}); stopping gate`);
-    process.exit(code || 1);
-  });
-  for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => app.kill(sig));
   return server;
 }

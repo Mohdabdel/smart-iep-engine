@@ -7,13 +7,12 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { createGateServer, LoginLimiter, signSession, verifySession, COOKIE, INNER_HEADER } from "./staging-gate-lib.mjs";
+import { createGateServer, captureInProcessServer, LoginLimiter, signSession, verifySession, COOKIE } from "./staging-gate-lib.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const USER = "synthetic-tester";
 const PASS = randomBytes(18).toString("hex");
 const SECRET = randomBytes(32).toString("hex");
-const INNER = randomBytes(32).toString("hex");
 
 const listen = (srv) => new Promise((r) => srv.listen(0, "127.0.0.1", () => r(srv.address().port)));
 const closers = [];
@@ -32,15 +31,16 @@ function request(port, { method = "GET", path: p = "/", headers = {} } = {}) {
 }
 const basic = (u, p) => ({ authorization: "Basic " + Buffer.from(`${u}:${p}`).toString("base64") });
 
-// Fake upstream that echoes what it received.
+// Fake in-process app that records what it received.
 const seen = [];
-const upstream = http.createServer((req, res) => {
-  seen.push({ headers: req.headers, raw: req.rawHeaders });
-  res.writeHead(200, { "content-type": "application/json" });
-  res.end(JSON.stringify({ ok: true, url: req.url }));
-});
-const upstreamPort = await listen(upstream);
-closers.push(() => new Promise((r) => upstream.close(r)));
+const echoApp = {
+  ready: Promise.resolve(),
+  dispatch: (req, res) => {
+    seen.push({ headers: { ...req.headers }, raw: [...req.rawHeaders] });
+    res.writeHead(200, { "content-type": "application/json", "set-cookie": "app_cookie=1; Path=/" });
+    res.end(JSON.stringify({ ok: true, url: req.url }));
+  },
+};
 
 let clock = Date.now();
 const logs = [];
@@ -50,8 +50,7 @@ function makeGate(overrides = {}) {
     pass: PASS,
     sessionSecret: SECRET,
     ttlSec: 600,
-    upstream: { host: "127.0.0.1", port: upstreamPort },
-    innerSecret: INNER,
+    app: echoApp,
     now: () => clock,
     log: (m) => logs.push(m),
     secureCookie: false,
@@ -82,16 +81,18 @@ test("wrong password -> 401", async () => {
   assert.equal(sessionFrom(r), null);
 });
 
-test("correct login -> 200, session cookie flags, credentials and inner secret handled", async () => {
-  const r = await request(gatePort, { headers: { ...basic(USER, PASS), [INNER_HEADER]: "client-forged" } });
+test("correct login -> 200, session cookie flags, app cookie preserved, credentials not forwarded", async () => {
+  const r = await request(gatePort, { headers: basic(USER, PASS) });
   assert.equal(r.status, 200);
   const sc = [].concat(r.headers["set-cookie"]).find((c) => c.startsWith(`${COOKIE}=`));
   assert.match(sc, /HttpOnly/);
   assert.match(sc, /SameSite=Lax/);
   assert.match(sc, /Max-Age=600/);
-  const got = seen.at(-1).headers;
-  assert.equal(got.authorization, undefined, "Basic credentials must not reach the app");
-  assert.equal(got[INNER_HEADER], INNER, "client-supplied inner header must be replaced");
+  assert.ok([].concat(r.headers["set-cookie"]).some((c) => c.startsWith("app_cookie=")), "app Set-Cookie kept");
+  assert.equal(r.headers["x-robots-tag"], "noindex, nofollow");
+  const got = seen.at(-1);
+  assert.equal(got.headers.authorization, undefined, "Basic credentials must not reach the app");
+  assert.ok(!got.raw.map((x) => x.toLowerCase()).includes("authorization"), "not in rawHeaders either");
 });
 
 test("valid session -> 200 and app Bearer header passes through; gate cookie stripped", async () => {
@@ -147,66 +148,60 @@ test("login throttling -> 429 after repeated failures, even with correct passwor
   assert.ok(r.headers["retry-after"]);
 });
 
-test("upstream down -> 502 (gate stays up)", async () => {
-  const dead = http.createServer();
-  const deadPort = await listen(dead);
-  await new Promise((r) => dead.close(r));
-  const port = await makeGate({ upstream: { host: "127.0.0.1", port: deadPort } });
+test("app throws -> 502 (gate stays up)", async () => {
+  const port = await makeGate({ app: { ready: Promise.resolve(), dispatch: () => { throw new Error("boom"); } } });
   const r = await request(port, { headers: basic(USER, PASS) });
   assert.equal(r.status, 502);
   assert.equal((await request(gatePort)).status, 401, "gate keeps serving");
 });
 
-test("upstream hang -> 504 timeout", async () => {
-  const hang = http.createServer(() => {});
-  const hangPort = await listen(hang);
-  closers.push(() => new Promise((r) => { hang.closeAllConnections(); hang.close(r); }));
-  const port = await makeGate({ upstream: { host: "127.0.0.1", port: hangPort }, upstreamTimeoutMs: 300 });
+test("app hangs -> 504 timeout", async () => {
+  const port = await makeGate({ app: { ready: Promise.resolve(), dispatch: () => {} }, appTimeoutMs: 300 });
   const r = await request(port, { headers: basic(USER, PASS) });
   assert.equal(r.status, 504);
 });
 
+test("cold start: request waits for app readiness, then 200", async () => {
+  let markReady;
+  const ready = new Promise((r) => (markReady = r));
+  const port = await makeGate({ app: { ready, dispatch: echoApp.dispatch } });
+  const pending = request(port, { headers: basic(USER, PASS) });
+  setTimeout(markReady, 400);
+  assert.equal((await pending).status, 200);
+});
+
+test("app never ready -> 503 after readiness timeout", async () => {
+  const port = await makeGate({ app: { ready: new Promise(() => {}), dispatch: echoApp.dispatch }, readyTimeoutMs: 300 });
+  assert.equal((await request(port, { headers: basic(USER, PASS) })).status, 503);
+});
+
 test("logs never contain password, session secret, tokens or Authorization values", () => {
   const all = logs.join("\n");
-  for (const s of [PASS, SECRET, INNER, "app-token", Buffer.from(`${USER}:${PASS}`).toString("base64")]) {
+  for (const s of [PASS, SECRET, "app-token", Buffer.from(`${USER}:${PASS}`).toString("base64")]) {
     assert.ok(!all.includes(s), "secret leaked into logs");
   }
 });
 
-test("inner preload: direct access to Nitro port without gate secret -> 403", async () => {
-  const appCode = `
-    import http from "node:http";
-    const s = http.createServer((req, res) => res.end(JSON.stringify({ h: req.headers, raw: req.rawHeaders, env: !!process.env.STAGING_GATE_INNER_SECRET })));
-    s.listen(0, "127.0.0.1", () => console.log("PORT=" + s.address().port));`;
-  const child = spawn(process.execPath, ["--import", path.join(here, "staging-gate-inner.mjs"), "--input-type=module", "-e", appCode], {
-    env: { ...process.env, STAGING_GATE_INNER_SECRET: INNER },
-    stdio: ["ignore", "pipe", "inherit"],
+test("in-process capture: app server never opens a socket; gate is the only listener", async () => {
+  const gate = http.createServer();
+  await listen(gate);
+  closers.push(() => new Promise((r) => gate.close(r)));
+  const appServer = await captureInProcessServer(async () => {
+    const s = http.createServer((req, res) => res.end("app"));
+    await new Promise((r) => s.listen(4321, "127.0.0.1", r)); // would bind if not intercepted
+  }, { except: gate });
+  assert.equal(appServer.listening, false, "captured app server must not be listening");
+  const probe = await new Promise((resolve) => {
+    const rq = http.request({ host: "127.0.0.1", port: 4321, path: "/" }, () => resolve("open"));
+    rq.on("error", () => resolve("closed"));
+    rq.end();
   });
-  closers.push(async () => child.kill());
-  const port = await new Promise((resolve, reject) => {
-    child.stdout.on("data", (d) => {
-      const m = String(d).match(/PORT=(\d+)/);
-      if (m) resolve(Number(m[1]));
-    });
-    child.on("exit", (c) => reject(new Error("child exited " + c)));
-  });
-  assert.equal((await request(port)).status, 403);
-  assert.equal((await request(port, { headers: { [INNER_HEADER]: "x".repeat(64) } })).status, 403);
-  const ok = await request(port, { headers: { [INNER_HEADER]: INNER } });
-  assert.equal(ok.status, 200);
-  const body = JSON.parse(ok.body);
-  assert.equal(body.h[INNER_HEADER], undefined, "secret removed from headers");
-  assert.ok(!body.raw.map((x) => x.toLowerCase()).includes(INNER_HEADER), "secret removed from rawHeaders");
-  assert.equal(body.env, false, "secret removed from app env");
-});
-
-test("inner preload refuses to start without secret", async () => {
-  const child = spawn(process.execPath, ["--import", path.join(here, "staging-gate-inner.mjs"), "-e", "setTimeout(()=>{},5000)"], {
-    env: { ...process.env, STAGING_GATE_INNER_SECRET: "" },
-    stdio: "ignore",
-  });
-  const code = await new Promise((r) => child.on("exit", r));
-  assert.equal(code, 1);
+  assert.equal(probe, "closed", "no inner port to bypass the gate");
+  // listen() is restored for everything else afterwards
+  const other = http.createServer();
+  await listen(other);
+  assert.equal(other.listening, true);
+  other.close();
 });
 
 test("gate refuses to start with missing/weak secrets", async () => {
