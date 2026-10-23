@@ -67,3 +67,20 @@ describe("M-7 readable references", () => {
     expect(arabicSectionRefs("(المرجع: needs_coverage — ح9)")).toContain("مصفوفة تغطية الاحتياجات — ح9");
   });
 });
+
+import { REPORT_CHAPTERS, REPORT_SECTION_OPTIONS, buildReportBlocks } from "@/lib/export-report";
+describe("M-8 chapters", () => {
+  it("every section belongs to exactly one chapter and nothing is dropped", () => {
+    const ids = REPORT_CHAPTERS.flatMap((c) => c.ids);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect([...ids].sort()).toEqual(REPORT_SECTION_OPTIONS.map((o) => o.id).sort());
+  });
+  it("orders blocks by chapter and marks the first block of each chapter", () => {
+    const r = toReport({ ...emptyModelOutput(), executive_summary: "x", recommendations: ["y"] }, defaultReviewConfig());
+    const blocks = buildReportBlocks(r);
+    expect(blocks[0]!.chapter?.n).toBe(1);
+    const chapters = blocks.filter((b) => b.chapter).map((b) => b.chapter!.n);
+    expect([...chapters].sort((a, b) => a - b)).toEqual(chapters);
+    expect(blocks.find((b) => b.id === "recommendations")).toBeTruthy();
+  });
+});

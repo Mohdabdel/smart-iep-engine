@@ -54,7 +54,21 @@ export type ReportBlock = {
   title: string;
   lines: string[];
   table?: { head: string[]; rows: string[][] } | undefined;
+  /** يوجد على أول قسم ظاهر في كل فصل (M-8) */
+  chapter?: { n: number; title: string; bridge: string } | undefined;
 };
+
+/** M-8: الفصول الثمانية — ترتيب منطقي بلا حذف أو اختصار لأي قسم */
+export const REPORT_CHAPTERS: { title: string; ids: ReportSectionId[] }[] = [
+  { title: "التعريف ونطاق المراجعة", ids: ["summary", "scope", "criteria_config"] },
+  { title: "الخلاصة والقرار", ids: ["decision_brief", "executive", "decision", "gates", "consistency"] },
+  { title: "الأساس: مستوى الأداء الحالي", ids: ["plaafp", "plaafp_assessment"] },
+  { title: "من الاحتياج إلى الهدف", ids: ["mapping"] },
+  { title: "الأهداف", ids: ["smart", "goal_review", "before_after"] },
+  { title: "الخطة ككل", ids: ["whole_plan", "vertical", "routines", "invested_contexts", "potential_contexts", "personal_social"] },
+  { title: "الانتقال", ids: ["transition_min", "transition_goals", "transition_matrix", "transition_improvements"] },
+  { title: "التحقق والإجراءات", ids: ["standards", "recommendations", "manual_notes"] },
+];
 
 const titleOf = (id: ReportSectionId) => REPORT_SECTION_OPTIONS.find((o) => o.id === id)!.label;
 const v = (t: string | null | undefined, fallback = "—") => (t && t.trim() ? t : fallback);
@@ -309,7 +323,45 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
   });
   push({ id: "recommendations", title: titleOf("recommendations"), lines: report.recommendations.map((t, i) => `${i + 1}. ${t}`) });
   push({ id: "manual_notes", title: titleOf("manual_notes"), lines: report.manual_notes.map((t, i) => `${i + 1}. ${t}`) });
-  return blocks;
+  return arrangeChapters(blocks, chapterBridges(report));
+}
+
+/** جمل الربط بين الفصول — محسوبة من نتائج التقرير لا من نص النموذج */
+function chapterBridges(report: IepAuditReport): string[] {
+  const gc = goalReviewCounts(report);
+  const ts = transitionStats(report);
+  const pa = report.plaafp_assessment.judgment;
+  const needs = report.needs_coverage;
+  const nc = (st: string) => needs.filter((n) => n.coverage_status === st).length;
+  const inv = report.plan_inventory?.goals?.length ?? 0;
+  return [
+    `ما الذي رُوجع، ومن أي مصادر، وبأي معايير.`,
+    `الحكم العام على الخطة: ${report.review_decision}${report.critical_gates.length ? `، مع ${report.critical_gates.length} بوابة حرجة` : ""}. الفصول التالية تعرض الأساس الذي بُني عليه هذا الحكم.`,
+    `كل أهداف الخطة تُبنى على وصف الأداء الحالي، وحكمه في هذه المراجعة: ${pa}.`,
+    needs.length
+      ? `من ${needs.length} احتياجاً مصرحاً به: مغطى ${nc("مغطى")}، جزئياً ${nc("مغطى جزئياً")}، غير مغطى ${nc("غير مغطى")}.`
+      : `مطابقة الاحتياجات المصرح بها في مستوى الأداء الحالي مع أهداف الخطة.`,
+    gc.reviewed
+      ? `${inv ? `حُصر في الخطة ${inv} هدفاً. ` : ""}من ${gc.reviewed} هدفاً مراجَعاً: ${gc.sound} سليمة، ${gc.needs} تحتاج تعديلاً، ${gc.unclear} تعذر الحكم عليها.`
+      : `مراجعة صياغة الأهداف وجودتها.`,
+    `بعد الأهداف منفردةً: هل تعمل الخطة كوحدة واحدة في يوم المتعلم وحياته؟ حكم الترابط: ${report.whole_plan.judgment}.`,
+    report.transition_coverage.length
+      ? `إلى أين تقود الخطة المتعلم: الحد الأدنى من مفاهيم الانتقال ${report.transition_minimum.judgment}؛ ${ts.label}.`
+      : `إلى أين تقود الخطة المتعلم بعد المرحلة الحالية.`,
+    `الأدلة التفصيلية للمعايير، ثم ما يجب فعله.`,
+  ];
+}
+
+function arrangeChapters(blocks: ReportBlock[], bridges: string[]): ReportBlock[] {
+  const byId = new Map(blocks.map((b) => [b.id, b]));
+  const out: ReportBlock[] = [];
+  REPORT_CHAPTERS.forEach((c, i) => {
+    const present = c.ids.map((id) => byId.get(id)).filter((b): b is ReportBlock => !!b);
+    present.forEach((b, j) => out.push(j === 0 ? { ...b, chapter: { n: i + 1, title: c.title, bridge: bridges[i] ?? "" } } : b));
+  });
+  // أي قسم غير مدرج في فصل يبقى في النهاية بدل أن يضيع
+  for (const b of blocks) if (!out.includes(b) && !out.some((x) => x.id === b.id)) out.push(b);
+  return out;
 }
 
 const fileBase = (r: IepAuditReport) => `iep-audit-${(r.student_info.student_name || "iep").replace(/\s+/g, "_")}`;
@@ -396,7 +448,11 @@ export async function exportDocx(report: IepAuditReport, sections: ReportSection
     p("تقرير المراجعة الإشرافية الأولية للخطة التربوية الفردية", { heading: HeadingLevel.TITLE }),
   ];
   for (const b of buildReportBlocks(report, sections)) {
-    children.push(p(b.title, { heading: HeadingLevel.HEADING_1 }));
+    if (b.chapter) {
+      children.push(p(`الفصل ${b.chapter.n}: ${b.chapter.title}`, { heading: HeadingLevel.HEADING_1 }));
+      if (b.chapter.bridge) children.push(p(b.chapter.bridge, { bold: true }));
+    }
+    children.push(p(b.title, { heading: HeadingLevel.HEADING_2 }));
     for (const l of b.lines) if (l.trim()) children.push(p(l));
     if (b.table && b.table.rows.length) {
       children.push(

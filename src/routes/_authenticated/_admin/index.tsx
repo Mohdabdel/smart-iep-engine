@@ -2,7 +2,7 @@ import { authHeaders } from "@/lib/auth-header";
 import { supabase } from "@/integrations/supabase/client";
 import { SignOutButton } from "@/components/SignOutButton";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Archive,
@@ -841,7 +841,16 @@ function AuditReportView({ report, fileInfo, reportSections }: { report: IepAudi
       </div>
 
       {blocks.map((b) => (
-        <section key={b.id} className="space-y-3 rounded-2xl border border-border bg-card p-5 print:break-inside-avoid">
+        <Fragment key={b.id}>
+        {b.chapter && (
+          <header className="space-y-1 border-b-2 border-primary/40 pb-2 pt-4 print:break-before-page">
+            <h2 className="text-lg font-bold text-primary">
+              الفصل {b.chapter.n}: {b.chapter.title}
+            </h2>
+            {b.chapter.bridge && <p className="text-sm text-muted-foreground">{b.chapter.bridge}</p>}
+          </header>
+        )}
+        <section className="space-y-3 rounded-2xl border border-border bg-card p-5 print:break-inside-avoid">
           <h2 className="text-base font-bold">{b.title}</h2>
           {b.lines.filter((l) => l.trim()).map((l, i) => (
             <p key={i} className="text-sm leading-relaxed">
@@ -875,6 +884,7 @@ function AuditReportView({ report, fileInfo, reportSections }: { report: IepAudi
             </div>
           )}
         </section>
+        </Fragment>
       ))}
     </div>
   );

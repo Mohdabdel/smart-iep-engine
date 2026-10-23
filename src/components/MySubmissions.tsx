@@ -34,6 +34,8 @@ export function MySubmissions({ userId, refresh }: { userId: string; refresh: nu
         <button className={btn} onClick={() => setReport(null)}>رجوع</button>
         {buildReportBlocks(report).map((b) => (
           <section key={b.id} className="space-y-1">
+            {b.chapter && <h2 className="pt-3 font-bold">الفصل {b.chapter.n}: {b.chapter.title}</h2>}
+            {b.chapter?.bridge && <p className="text-sm text-muted-foreground">{b.chapter.bridge}</p>}
             <h3 className="font-semibold">{b.title}</h3>
             {b.lines.map((l, i) => <p key={i} className="text-sm">{l}</p>)}
             {b.table && (
