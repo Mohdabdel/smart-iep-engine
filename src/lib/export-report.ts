@@ -9,6 +9,7 @@ import {
 } from "./criteria-registry";
 import { REVIEWER_STATUS_LABELS, reviewedKeys, type IepAuditReport } from "./iep-schema";
 import { goalReviewCounts, transitionStats } from "./iep-parity";
+import { checkReportConsistency } from "./consistency-check";
 import { POTENTIAL_CONTEXT_STATUS } from "./functional-context-registry";
 
 export const REPORT_SECTION_OPTIONS = [
@@ -18,6 +19,7 @@ export const REPORT_SECTION_OPTIONS = [
   { id: "decision_brief", label: "الموجز التنفيذي المحدّث (موجز القرار)" },
   { id: "executive", label: "الموجز التنفيذي" },
   { id: "decision", label: "قرار المراجعة" },
+  { id: "consistency", label: "تنبيهات اتساق للمشرف" },
   { id: "gates", label: "البوابات الحرجة" },
   { id: "standards", label: "معايير الجودة" },
   { id: "plaafp", label: "مستوى الأداء الحالي" },
@@ -72,7 +74,7 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
   const pa = report.plaafp_assessment;
   const blocks: ReportBlock[] = [];
   const push = (b: ReportBlock) => {
-    if (sections[b.id] && (b.lines.some((l) => l.trim()) || (b.table && b.table.rows.length))) blocks.push(b);
+    if ((sections[b.id] ?? true) && (b.lines.some((l) => l.trim()) || (b.table && b.table.rows.length))) blocks.push(b);
   };
 
   push({
@@ -122,6 +124,13 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
   push({ id: "decision_brief", title: titleOf("decision_brief"), lines: brief });
   push({ id: "executive", title: titleOf("executive"), lines: [report.executive_summary] });
   push({ id: "decision", title: titleOf("decision"), lines: [`قرار المراجعة: ${report.review_decision}`] });
+  const alerts = checkReportConsistency(report);
+  push({
+    id: "consistency",
+    title: titleOf("consistency"),
+    lines: alerts.length ? ["تنبيهات آلية لا تغيّر القرار — القرار الأخير للمشرف."] : [],
+    table: alerts.length ? { head: ["الموضع", "التنبيه"], rows: alerts.map((a) => [a.scope, a.message]) } : undefined,
+  });
   push({
     id: "gates",
     title: titleOf("gates"),
@@ -322,6 +331,7 @@ const JSON_KEYS: Record<ReportSectionId, (keyof IepAuditReport)[]> = {
   decision_brief: ["top_priorities"],
   executive: ["executive_summary"],
   decision: ["review_decision"],
+  consistency: [],
   gates: ["critical_gates"],
   standards: ["criteria_results"],
   plaafp: ["plaafp_review"],
@@ -353,6 +363,7 @@ export function selectJson(report: IepAuditReport, sections: ReportSections) {
   const fcs = report.functional_contexts;
   if (sections.invested_contexts !== sections.potential_contexts && out["functional_contexts"])
     out["functional_contexts"] = sections.invested_contexts ? { invested: fcs.invested } : { potential: fcs.potential };
+  if (sections.consistency ?? true) out["consistency_alerts"] = checkReportConsistency(report);
   if (sections.decision_brief) {
     out["decision_brief"] = { goals: goalReviewCounts(report), plaafp_judgment: report.plaafp_assessment.judgment, transition: transitionStats(report) };
   }
