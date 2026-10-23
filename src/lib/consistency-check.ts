@@ -91,5 +91,25 @@ export function checkReportConsistency(report: IepAuditReport): ConsistencyAlert
   const empty = goals.filter((g) => !(g.goal_text || "").trim()).length;
   if (empty) alerts.push({ code: "C-EMPTY", scope: "مراجعة الأهداف", message: `${empty} أهداف بلا نص مستخرج.` });
 
+  // M-6: مطابقة مراجعة الأهداف مع الحصر المرقّم (للتقارير التي نُفّذ فيها الحصر)
+  const inv = report.plan_inventory?.goals ?? [];
+  if (inv.length && goals.length) {
+    const refs = new Set(inv.map((g) => g.ref.trim()));
+    const missing = inv.filter((g) => !goals.some((x) => x.goal_number.trim() === g.ref.trim())).map((g) => g.ref);
+    const extra = goals.filter((x) => !refs.has(x.goal_number.trim())).map((x) => x.goal_number || "؟");
+    if (missing.length || extra.length)
+      alerts.push({
+        code: "C-INV",
+        scope: "حصر الأهداف",
+        message: `الحصر يضم ${inv.length} هدفاً ومراجعة الأهداف ${goals.length}.${missing.length ? ` غير مراجَعة: ${missing.join("، ")}.` : ""}${extra.length ? ` خارج الحصر: ${extra.join("، ")}.` : ""}`,
+      });
+  }
+
+  // M-7: كل أولوية تحيل إلى قسمها
+  if (inv.length) {
+    const unref = (report.top_priorities ?? []).filter((p) => !/المرجع\s*:/.test(p)).length;
+    if (unref) alerts.push({ code: "C-REF", scope: "أهم أولويات التصحيح", message: `${unref} أولويات بلا إحالة إلى القسم الذي تستند إليه.` });
+  }
+
   return alerts;
 }

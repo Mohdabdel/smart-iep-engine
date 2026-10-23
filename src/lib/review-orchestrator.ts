@@ -1,5 +1,5 @@
 /** تشغيل أجزاء المراجعة بصورة متحملة للفشل وقابلة للاستكمال — منطق نقي قابل للاختبار */
-import type { ModelKey, ModelOutput } from "./iep-schema";
+import { partStage, type ModelKey, type ModelOutput } from "./iep-schema";
 import type { CaseStatus, PartStatus } from "./review-store";
 
 export type PartState = { key: string; keys: ModelKey[]; label: string; status: PartStatus; error?: string | undefined; attempts: number; result?: Partial<ModelOutput> | undefined };
@@ -7,6 +7,8 @@ export type PartState = { key: string; keys: ModelKey[]; label: string; status: 
 export const partKey = (keys: ModelKey[]) => keys.join("+");
 
 export function partLabel(keys: ModelKey[]) {
+  if (keys.includes("plan_inventory")) return "حصر الأهداف والاحتياجات";
+  if (keys.includes("review_decision")) return "القرار والموجز والأولويات";
   if (keys.includes("goal_review")) return "مراجعة صياغة الأهداف";
   if (keys.includes("revisions")) return "التعديلات المقترحة (Before & After)";
   if (keys.includes("transition_coverage") || keys.includes("functional_contexts") || keys.includes("transition_minimum")) return "مفاهيم الانتقال والمواقف الوظيفية";
@@ -38,7 +40,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 export async function runParts(opts: {
   parts: PartState[];
-  run: (keys: ModelKey[]) => Promise<Partial<ModelOutput>>;
+  run: (keys: ModelKey[], context: PartContext) => Promise<Partial<ModelOutput>>;
   store?: PartStore | null;
   onUpdate: (parts: PartState[]) => void;
   only?: string[] | undefined;
@@ -60,32 +62,35 @@ export async function runParts(opts: {
   const backoff = opts.backoffMs ?? ((n: number) => 2000 * 2 ** (n - 1));
   const targets = parts.filter((p) => (opts.only ? opts.only.includes(p.key) : p.status !== "completed"));
 
-  await Promise.allSettled(
-    targets.map(async (t) => {
-      let attempt = 0;
-      for (;;) {
-        attempt += 1;
-        const attempts = (parts.find((p) => p.key === t.key)?.attempts ?? 0) + 1;
-        patch(t.key, { status: "running", error: undefined, attempts });
-        await safeStore(t.key, "running", { increment_attempts: true });
-        try {
-          const result = await opts.run(t.keys);
-          patch(t.key, { status: "completed", result });
-          await safeStore(t.key, "completed", { result_json: result });
-          return;
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : "تعذر تنفيذ هذا الجزء.";
-          if (attempt === 1 && isRetriable(e)) {
-            await sleep(backoff(attempt));
-            continue;
-          }
-          patch(t.key, { status: "failed", error: msg });
-          await safeStore(t.key, "failed", { error_message: msg });
-          return;
+  const runOne = async (t: PartState) => {
+    let attempt = 0;
+    for (;;) {
+      attempt += 1;
+      const attempts = (parts.find((p) => p.key === t.key)?.attempts ?? 0) + 1;
+      patch(t.key, { status: "running", error: undefined, attempts });
+      await safeStore(t.key, "running", { increment_attempts: true });
+      try {
+        // سياق الأجزاء المكتملة حتى الآن (الحصر للمرحلة التحليلية، والخلاصة لمرحلة القرار)
+        const result = await opts.run(t.keys, buildPartContext(mergeParts(parts)));
+        patch(t.key, { status: "completed", result });
+        await safeStore(t.key, "completed", { result_json: result });
+        return;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "تعذر تنفيذ هذا الجزء.";
+        if (attempt === 1 && isRetriable(e)) {
+          await sleep(backoff(attempt));
+          continue;
         }
+        patch(t.key, { status: "failed", error: msg });
+        await safeStore(t.key, "failed", { error_message: msg });
+        return;
       }
-    }),
-  );
+    }
+  };
+
+  // المراحل تُنفَّذ بالترتيب، وأجزاء المرحلة الواحدة بالتوازي. فشل مرحلة لا يوقف ما بعدها.
+  const stages = [...new Set(targets.map((t) => partStage(t.keys)))].sort((a, b) => a - b);
+  for (const st of stages) await Promise.allSettled(targets.filter((t) => partStage(t.keys) === st).map(runOne));
   return parts;
 }
 
@@ -98,4 +103,27 @@ export function caseStatusFor(parts: PartState[]): CaseStatus {
 
 export function mergeParts(parts: PartState[]): Partial<ModelOutput> {
   return Object.assign({}, ...parts.filter((p) => p.status === "completed" && p.result).map((p) => p.result));
+}
+
+/** ما يُرسل مع كل جزء من نتائج الأجزاء السابقة — مختصر لا يتجاوز سقف الطلب */
+export type PartContext = {
+  plan_inventory?: ModelOutput["plan_inventory"];
+  digest?: Record<string, unknown>;
+};
+
+export function buildPartContext(m: Partial<ModelOutput>): PartContext {
+  const ctx: PartContext = {};
+  if (m.plan_inventory?.goals?.length || m.plan_inventory?.needs?.length) ctx.plan_inventory = m.plan_inventory;
+  const d: Record<string, unknown> = {};
+  if (m.goal_review) d["goal_review"] = { goals: m.goal_review.goals.map((g) => ({ goal_number: g.goal_number, verdict: g.verdict, issue: g.issue })), recurring_patterns: m.goal_review.recurring_patterns };
+  if (m.plaafp_assessment) d["plaafp_assessment"] = { judgment: m.plaafp_assessment.judgment, needs_improvement: m.plaafp_assessment.needs_improvement, constrained_judgments: m.plaafp_assessment.constrained_judgments };
+  if (m.needs_coverage) d["needs_coverage"] = m.needs_coverage.map((n) => ({ need: n.need, status: n.coverage_status }));
+  if (m.whole_plan) d["whole_plan"] = { judgment: m.whole_plan.judgment, scattered_goals: m.whole_plan.scattered_goals };
+  if (m.transition_minimum) d["transition_minimum"] = { judgment: m.transition_minimum.judgment };
+  if (m.transition_coverage) d["transition_coverage"] = m.transition_coverage.map((t) => ({ concept: t.concept, status: t.status }));
+  if (m.criteria_results) d["criteria_results"] = m.criteria_results.map((f) => ({ id: f.criterion_id, status: f.status, severity: f.severity }));
+  if (m.revisions) d["revisions"] = m.revisions.map((r) => ({ goal_number: r.goal_number, defect_type: r.defect_type, priority: r.priority }));
+  if (m.recommendations) d["recommendations"] = m.recommendations;
+  if (Object.keys(d).length) ctx.digest = d;
+  return ctx;
 }

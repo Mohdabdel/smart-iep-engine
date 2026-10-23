@@ -41,7 +41,7 @@ import {
 } from "@/lib/criteria-registry";
 import { FINDING_STATUSES, TRANSITION_CONCEPTS, normalizeReport, partsForReviewType, toReport, type IepAuditReport, type ModelKey, type ModelOutput } from "@/lib/iep-schema";
 import { applyReviewerParity, statusCounts, type ParityStats } from "@/lib/iep-parity";
-import { RetriableError, caseStatusFor, initialParts, mergeParts, runParts, type PartState } from "@/lib/review-orchestrator";
+import { RetriableError, caseStatusFor, initialParts, mergeParts, runParts, type PartContext, type PartState } from "@/lib/review-orchestrator";
 import {
   PART_STATUS_LABELS,
   cacheCaseDocuments,
@@ -94,11 +94,11 @@ function buildFromParts(parts: PartState[], config: ReviewConfig): AuditResult |
   return { report: parity.report, parity: parity.stats, partial: missing.length ? missing : undefined };
 }
 
-async function runAuditPart(config: ReviewConfig, documents: ParsedDocument[], keys: ModelKey[]): Promise<Partial<ModelOutput>> {
+async function runAuditPart(config: ReviewConfig, documents: ParsedDocument[], keys: ModelKey[], context: PartContext = {}): Promise<Partial<ModelOutput>> {
   const response = await fetch("/api/audit", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-    body: JSON.stringify({ config, documents, keys }),
+    body: JSON.stringify({ config, documents, keys, context }),
   });
   if (!response.ok || !response.body) {
     const j = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -260,7 +260,7 @@ function Home() {
     const final = await runParts({
       parts: start,
       only,
-      run: (keys) => runAuditPart(cfg, documents, keys),
+      run: (keys, context) => runAuditPart(cfg, documents, keys, context),
       store: id ? { save: (key, status, extra) => saveReviewPart(id, key, status, extra) } : null,
       onUpdate: (ps) => {
         setParts(ps);

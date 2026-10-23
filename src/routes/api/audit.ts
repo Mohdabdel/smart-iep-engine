@@ -10,6 +10,7 @@ const inputSchema = z.object({
     transition_applicability: z.record(z.string(), z.enum(["unset", "applies", "na"])).optional(),
   }),
   keys: z.array(z.string()).min(1),
+  context: z.object({ plan_inventory: z.unknown().optional(), digest: z.record(z.string(), z.unknown()).optional() }).optional(),
   documents: z
     .array(z.object({ source: z.string(), name: z.string().min(1), text: z.string() }))
     .min(1)
@@ -53,7 +54,7 @@ export const Route = createFileRoute("/api/audit")({
               const allowed = new Set<string>(keysForReviewType(config.review_type));
               const keys = parsedInput.data.keys.filter((k) => allowed.has(k)) as import("@/lib/iep-schema").ModelKey[];
               if (!keys.length) throw new Error("أجزاء المراجعة المطلوبة غير صالحة.");
-              const partial = await runIepAudit(config, parsedInput.data.documents, keys);
+              const partial = await runIepAudit(config, parsedInput.data.documents, keys, parsedInput.data.context as import("@/lib/review-orchestrator").PartContext | undefined);
               send({ type: "result", data: { partial } });
             } catch (e) {
               console.error("[audit]", e);

@@ -2,6 +2,7 @@ import { normalizeArabicText } from "./arabic-normalize";
 import { Output, jsonSchema, streamText } from "ai";
 
 import { createIepAiProvider } from "./ai-provider.server";
+import type { PartContext } from "./review-orchestrator";
 import { POTENTIAL_CONTEXT_STATUS, contextBankPromptText } from "./functional-context-registry";
 import {
   CRITERIA_REGISTRY,
@@ -119,13 +120,19 @@ ${contextBankPromptText()}
 ## التمييز بين أنواع الملاحظات
 فرّق بين: ملاحظة مؤكدة من المستند، ملاحظة مقيدة بنقص البيانات، فرصة تطوير إشرافية، فرصة وظيفية محتملة تحتاج تحقق المشرف. لا تحوّل كل فرصة إلى خلل.
 
+## الحصر المرقّم (plan_inventory) — المرحلة الأولى
+استخرج كل أهداف الخطة الحالية دون استثناء وبترتيب ورودها: ref (هـ1، هـ2، …)، goal_number (رقمه كما ورد في الخطة أو فارغ)، domain، text (نص الهدف حرفياً). واستخرج كل احتياج مصرح به في مستوى الأداء الحالي: ref (ح1، ح2، …)، need. لا تكرر هدفاً، ولا تضف هدفاً غير موجود، ولا تحكم على شيء في هذه المرحلة.
+
+## القرار والموجز والأولويات — المرحلة الأخيرة
+تُبنى بعد الأجزاء التحليلية وعلى خلاصتها المرفقة. لا تُصدر "جاهزة" مع حكم مستوى أداء "يحتاج تحسيناً جوهرياً" أو "غير قابل للتحقق" إلا بتعليل صريح في الموجز. كل أولوية تحيل إلى قسمها.
+
 ## الموجز والتوصيات
 executive_summary: فقرة موجزة لما يحتاج المشرف معرفته (الأعداد تُحسب في الكود ولا تحتاج تكرارها). recommendations: توصيات إشرافية محددة قابلة للتنفيذ (بلا توصيات سلامة).
 plaafp_review / smart_review: تعليق نوعي موجز على مستوى الأداء الحالي وعلى جودة الأهداف SMART.`;
 
 export type SupportingDoc = { source: string; name: string; text: string };
 
-export function buildUserPrompt(config: ReviewConfig, docs: SupportingDoc[], keys: ModelKey[] = keysForReviewType(config.review_type)) {
+export function buildUserPrompt(config: ReviewConfig, docs: SupportingDoc[], keys: ModelKey[] = keysForReviewType(config.review_type), context: PartContext = {}) {
   const reviewType = REVIEW_TYPES.find((t) => t.id === config.review_type)?.label ?? "مراجعة كاملة";
   const pillars = new Set(pillarsForReviewType(config.review_type));
   const active = activeCriteria(config);
@@ -161,17 +168,41 @@ ${active.length ? active.map((c) => `- ${c.id} ${c.label}`).join("\n") : "- لا
 ${excluded.length ? excluded.map((t) => `- ${t}`).join("\n") : "- لا يوجد"}
 
 هذه المهمة جزء من مراجعة مقسّمة إلى أجزاء متوازية. أخرج فقط المفاتيح المطلوبة في المخطط: ${keys.join(", ")}
-
+${contextBlock(keys, context)}
 ${docsText}`;
 }
 
-export async function runIepAudit(config: ReviewConfig, docs: SupportingDoc[], keys: ModelKey[]): Promise<Partial<ModelOutput>> {
+const MAX_DIGEST_CHARS = 30000;
+
+/** يضيف الحصر المعتمد (M-6) لكل جزء تحليلي، وخلاصة الأجزاء (M-7) لجزء القرار */
+export function contextBlock(keys: ModelKey[], context: PartContext = {}): string {
+  const out: string[] = [];
+  const inv = context.plan_inventory;
+  if (inv && !keys.includes("plan_inventory") && (inv.goals.length || inv.needs.length)) {
+    out.push(
+      "## الحصر المعتمد للأهداف والاحتياجات (ملزم)",
+      "استخدم هذه المراجع فقط ولا تضف أهدافاً أو احتياجات من عندك. في goal_number وأي إحالة إلى هدف استخدم المرجع (هـn) كما هو. goal_review يحتوي عنصراً واحداً لكل هدف في الحصر، بالترتيب نفسه.",
+      ...inv.goals.map((g) => `${g.ref} [${g.domain}] (رقمه في الخطة: ${g.goal_number || "—"}) ${g.text}`),
+      ...inv.needs.map((n) => `${n.ref} ${n.need}`),
+    );
+  }
+  if (context.digest && keys.includes("review_decision")) {
+    out.push(
+      "## خلاصة نتائج الأجزاء التحليلية (ابنِ عليها القرار والموجز والأولويات)",
+      "لا تناقض هذه الخلاصة. القرار يتسق مع حكم مستوى الأداء الحالي ومع أحكام الأهداف. كل أولوية تنتهي بإحالة بالصيغة: (المرجع: اسم القسم — هـn/حn إن وُجد). لا تذكر أولوية لا يقابلها قسم في الخلاصة.",
+      JSON.stringify(context.digest).slice(0, MAX_DIGEST_CHARS),
+    );
+  }
+  return out.length ? `\n${out.join("\n")}\n` : "";
+}
+
+export async function runIepAudit(config: ReviewConfig, docs: SupportingDoc[], keys: ModelKey[], context: PartContext = {}): Promise<Partial<ModelOutput>> {
   const { provider, model } = createIepAiProvider();
 
   const result = streamText({
     model: provider.responses(model),
     system: IEP_SYSTEM_PROMPT,
-    prompt: buildUserPrompt(config, docs, keys),
+    prompt: buildUserPrompt(config, docs, keys, context),
     output: Output.object({ schema: jsonSchema<Partial<ModelOutput>>(buildScopedJsonSchema(config.review_type, keys)) }),
     providerOptions: {
       openai: {

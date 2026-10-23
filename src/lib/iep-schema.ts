@@ -189,6 +189,12 @@ export const revisionZ = z.object({
   keep_assistance_wording: z.boolean(),
 });
 
+/** M-6: الحصر المرقّم للأهداف والاحتياجات — يُنفَّذ أولاً وتستند إليه بقية الأجزاء */
+const planInventoryZ = z.object({
+  goals: z.array(z.object({ ref: str, goal_number: str, domain: str, text: str })),
+  needs: z.array(z.object({ ref: str, need: str })),
+});
+
 /** مخرجات النموذج — كل المفاتيح (يُقلَّص حسب نوع المراجعة) */
 export const modelOutputZ = z.object({
   student_info: z.object({
@@ -216,6 +222,7 @@ export const modelOutputZ = z.object({
   functional_contexts: functionalContextsZ,
   transition_coverage: transitionCoverageZ,
   top_priorities: z.array(str),
+  plan_inventory: planInventoryZ,
 });
 export type ModelOutput = z.infer<typeof modelOutputZ>;
 export type ModelKey = keyof ModelOutput;
@@ -233,7 +240,7 @@ export type IepAuditReport = Omit<ModelOutput, "criteria_results" | "revisions">
   manual_notes: string[];
 };
 
-const ALWAYS: ModelKey[] = ["student_info", "executive_summary", "review_decision", "critical_gates", "recommendations"];
+const ALWAYS: ModelKey[] = ["plan_inventory", "student_info", "executive_summary", "review_decision", "critical_gates", "recommendations"];
 /** الطبقات الإشرافية الإلزامية: مراجعة الأهداف، الاحتياج←الهدف، الرؤية الكلية، الانتقال */
 const SUPERVISORY: ModelKey[] = ["goal_review", "plaafp_assessment", "functional_contexts", "transition_coverage", "top_priorities", "needs_coverage", "whole_plan", "daily_routines", "personal_social", "transition_minimum", "revisions"];
 
@@ -269,20 +276,32 @@ function strictify(node: unknown): unknown {
   return o;
 }
 
-/** تقسيم المراجعة إلى أجزاء متوازية — كل جزء طلب مستقل أقصر من سقف زمن الطلب */
-const PART_BUCKETS: ModelKey[][] = [
-  ["student_info", "executive_summary", "review_decision", "critical_gates"],
-  ["criteria_results"],
-  ["plaafp_review", "smart_review", "recommendations", "top_priorities"],
-  ["needs_coverage", "whole_plan", "plaafp_assessment"],
-  ["daily_routines", "personal_social", "vertical_alignment"],
-  ["transition_minimum", "transition_coverage", "functional_contexts"],
-  ["goal_review"],
-  ["revisions"],
+/**
+ * تقسيم المراجعة إلى مراحل، وكل مرحلة أجزاء متوازية (كل جزء طلب مستقل أقصر من سقف زمن الطلب):
+ *  0 — الحصر المرقّم (M-6)
+ *  1 — الأجزاء التحليلية، وكلها تستند إلى الحصر
+ *  2 — التركيب (M-7): القرار والموجز والبوابات والأولويات تُبنى بعد نتائج الأجزاء وتحيل إليها
+ */
+const PART_STAGES: ModelKey[][][] = [
+  [["student_info", "plan_inventory"]],
+  [
+    ["criteria_results"],
+    ["plaafp_review", "smart_review", "recommendations"],
+    ["needs_coverage", "whole_plan", "plaafp_assessment"],
+    ["daily_routines", "personal_social", "vertical_alignment"],
+    ["transition_minimum", "transition_coverage", "functional_contexts"],
+    ["goal_review"],
+    ["revisions"],
+  ],
+  [["executive_summary", "review_decision", "critical_gates", "top_priorities"]],
 ];
+export function partStage(keys: ModelKey[]): number {
+  const i = PART_STAGES.findIndex((st) => st.some((b) => b.some((k) => keys.includes(k))));
+  return i < 0 ? 1 : i;
+}
 export function partsForReviewType(t: ReviewType): ModelKey[][] {
   const wanted = new Set(keysForReviewType(t));
-  return PART_BUCKETS.map((b) => b.filter((k) => wanted.has(k))).filter((b) => b.length > 0);
+  return PART_STAGES.flat().map((b) => b.filter((k) => wanted.has(k))).filter((b) => b.length > 0);
 }
 
 export function buildScopedJsonSchema(t: ReviewType, only?: ModelKey[]): import("json-schema").JSONSchema7 {
@@ -334,6 +353,7 @@ export function emptyModelOutput(): ModelOutput {
     functional_contexts: { invested: [], potential: [] },
     transition_coverage: [],
     top_priorities: [],
+    plan_inventory: { goals: [], needs: [] },
   };
 }
 
@@ -353,6 +373,7 @@ export function normalizeReport(r: IepAuditReport): IepAuditReport {
     functional_contexts: r.functional_contexts ?? e.functional_contexts,
     transition_coverage: r.transition_coverage ?? e.transition_coverage,
     top_priorities: r.top_priorities ?? [],
+    plan_inventory: r.plan_inventory ?? e.plan_inventory,
     manual_notes: r.manual_notes ?? [],
   };
 }
