@@ -86,22 +86,28 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
     lines: [`نوع المراجعة: ${REVIEW_TYPES.find((t) => t.id === cfg.review_type)?.label ?? cfg.review_type}`],
     table: { head: ["المصدر", "الحالة"], rows: EVIDENCE_SOURCES.map((x) => [x.label, SOURCE_STATE_LABELS[cfg.sources[x.id]]]) },
   });
-  const cfgRows = CRITERIA_REGISTRY.flatMap((p) =>
-    p.criteria.map((c) => {
-      const st = cfg.criteria[c.id]?.state ?? "active";
-      const label = pillars.has(p.id)
-        ? CRITERION_STATE_LABELS[st]
-        : p.id === "P2" && ran.has("goal_review")
-          ? "خارج المعايير الرسمية — الأهداف مراجعة إشرافياً"
-          : "خارج نوع المراجعة";
-      return [c.id, c.label, label, cfg.criteria[c.id]?.reason ?? ""];
-    }),
-  );
+  // M-2: الجدول يعرض معايير نطاق المراجعة فقط، وما خارجه يُختصر في سطر واحد
+  const cfgRows: string[][] = [];
+  const outOfScope: string[] = [];
+  for (const p of CRITERIA_REGISTRY) {
+    if (pillars.has(p.id)) {
+      for (const c of p.criteria) {
+        const st = cfg.criteria[c.id]?.state ?? "active";
+        cfgRows.push([c.id, c.label, CRITERION_STATE_LABELS[st], cfg.criteria[c.id]?.reason ?? ""]);
+      }
+    } else {
+      const note = p.id === "P2" && ran.has("goal_review") ? " — الأهداف مراجعة إشرافياً" : "";
+      outOfScope.push(`${p.id} (${p.criteria.length} معايير)${note}`);
+    }
+  }
   const notVerifiable = report.criteria_results.filter((f) => f.status === "غير قابل للتحقق من الوثيقة المقدمة").map((f) => f.criterion_id);
   push({
     id: "criteria_config",
     title: titleOf("criteria_config"),
-    lines: [notVerifiable.length ? `معايير غير قابلة للتحقق من الوثيقة المقدمة: ${notVerifiable.join("، ")}` : ""],
+    lines: [
+      outOfScope.length ? `خارج نطاق هذا النوع من المراجعة: ${outOfScope.join("، ")}.` : "",
+      notVerifiable.length ? `معايير غير قابلة للتحقق من الوثيقة المقدمة: ${notVerifiable.join("، ")}` : "",
+    ],
     table: { head: ["الرقم", "المعيار", "الحالة", "سبب التجميد"], rows: cfgRows },
   });
   const brief: string[] = [];
@@ -111,7 +117,7 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
   if (ran.has("whole_plan")) brief.push(`المسارات الوظيفية المكتشفة: ${report.whole_plan.functional_clusters.length} — الحكم النوعي للترابط: ${report.whole_plan.judgment}.`);
   if (ran.has("functional_contexts")) brief.push(`المواقف المستثمرة فعلياً: ${fc.invested.length} — الفرص الوظيفية المحتملة: ${fc.potential.length}.`);
   if (ran.has("transition_coverage") && report.transition_coverage.length)
-    brief.push(`تغطية الانتقال: مغطى ${ts.covered}، جزئي ${ts.partial}، غير مغطى ${ts.uncovered}، غير قابل للتحقق ${ts.unverifiable}، لا ينطبق ${ts.na}.`, ts.label);
+    brief.push(`تغطية الانتقال: مغطى كلياً ${ts.covered}، مغطى جزئياً ${ts.partial}، غير مغطى ${ts.uncovered}، غير قابل للتحقق ${ts.unverifiable}، لا ينطبق ${ts.na}.`, ts.label);
   if (report.top_priorities.length) brief.push("أهم أولويات التصحيح:", ...report.top_priorities.slice(0, 3).map((t, i) => `${i + 1}. ${t}`));
   push({ id: "decision_brief", title: titleOf("decision_brief"), lines: brief });
   push({ id: "executive", title: titleOf("executive"), lines: [report.executive_summary] });

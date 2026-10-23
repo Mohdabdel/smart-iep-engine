@@ -1,3 +1,5 @@
+import { normalizeArabicText } from "./arabic-normalize";
+
 /** استخراج نص المستند في المتصفح قبل إرساله إلى محرك التدقيق */
 export async function extractTextFromFile(file: File): Promise<string> {
   const name = file.name.toLowerCase();
@@ -28,7 +30,7 @@ export async function extractTextFromFile(file: File): Promise<string> {
           .trim(),
       );
     }
-    return pages.join("\n\n");
+    return normalizeArabicText(pages.join("\n\n"));
   }
 
   if (name.endsWith(".docx")) {
@@ -36,7 +38,7 @@ export async function extractTextFromFile(file: File): Promise<string> {
       extractRawText: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>;
     };
     const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
-    return result.value;
+    return normalizeArabicText(result.value);
   }
 
   if (name.endsWith(".doc")) {

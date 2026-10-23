@@ -219,6 +219,9 @@ export function transitionStats(report: IepAuditReport) {
   const unverifiable = c("غير قابل للتحقق");
   const denominator = userSet ? rows.length - na - unverifiable : TRANSITION_CONCEPTS.length;
   const percent = denominator > 0 ? Math.round(((covered + partial) / denominator) * 100) : 0;
+  // M-3: فصل التغطية الكاملة عن الجزئية حتى لا يُقرأ الرقم المدمج كتغطية كاملة
+  const fullPercent = denominator > 0 ? Math.round((covered / denominator) * 100) : 0;
+  const split = `مغطى كلياً ${covered} (${fullPercent}%)، ومع الجزئي ${covered + partial} (${percent}%)`;
   return {
     covered,
     partial,
@@ -227,9 +230,10 @@ export function transitionStats(report: IepAuditReport) {
     unverifiable,
     denominator,
     percent,
+    fullPercent,
     mode: userSet ? ("actual" as const) : ("descriptive" as const),
     label: userSet
-      ? `نسبة التغطية على المفاهيم المنطبقة: ${covered + partial} من ${denominator} (${percent}%) — ليست قرار اعتماد`
-      : `نسبة تغطية وصفية وليست قرار اعتماد: ${covered + partial} من ${denominator} مفهوماً مرجعياً (${percent}%)`,
+      ? `نسبة التغطية على المفاهيم المنطبقة (من ${denominator}): ${split} — ليست قرار اعتماد`
+      : `نسبة تغطية وصفية وليست قرار اعتماد (من ${denominator} مفهوماً مرجعياً): ${split}`,
   };
 }

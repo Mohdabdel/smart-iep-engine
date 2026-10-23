@@ -1,3 +1,4 @@
+import { normalizeArabicText } from "./arabic-normalize";
 import { Output, jsonSchema, streamText } from "ai";
 
 import { createIepAiProvider } from "./ai-provider.server";
@@ -134,7 +135,7 @@ export function buildUserPrompt(config: ReviewConfig, docs: SupportingDoc[], key
     .map((c) => `${c.id} ${c.label} (${config.criteria[c.id]?.state === "na" ? "لا ينطبق" : "مجمّد"})`);
   const sources = EVIDENCE_SOURCES.map((s) => `- ${s.label}: ${SOURCE_STATE_LABELS[config.sources[s.id]]}`).join("\n");
   const docsText = docs
-    .map((d) => `===== بداية مستند (${EVIDENCE_SOURCES.find((s) => s.id === d.source)?.label ?? d.source}) — ${d.name} =====\n${d.text}\n===== نهاية المستند =====`)
+    .map((d) => `===== بداية مستند (${EVIDENCE_SOURCES.find((s) => s.id === d.source)?.label ?? d.source}) — ${d.name} =====\n${normalizeArabicText(d.text)}\n===== نهاية المستند =====`)
     .join("\n\n");
   const extra =
     config.review_type === "post_correction"
