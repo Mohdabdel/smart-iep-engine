@@ -179,7 +179,7 @@ export function applyReviewerParity(report: IepAuditReport, config: ReviewConfig
       plaafp_assessment,
       functional_contexts,
       transition_coverage,
-      top_priorities: report.top_priorities.filter((t) => !SAFETY_RE.test(t)).slice(0, 5),
+      top_priorities: report.top_priorities.filter((t) => !SAFETY_RE.test(t)).slice(0, 5).map(arabicSectionRefs),
     },
     stats,
   };
@@ -236,4 +236,29 @@ export function transitionStats(report: IepAuditReport) {
       ? `نسبة التغطية على المفاهيم المنطبقة (من ${denominator}): ${split} — ليست قرار اعتماد`
       : `نسبة تغطية وصفية وليست قرار اعتماد (من ${denominator} مفهوماً مرجعياً): ${split}`,
   };
+}
+
+/** أسماء الأقسام كما تظهر للمشرف — تحل محل أسماء المفاتيح الداخلية في الإحالات */
+export const SECTION_NAMES: Record<string, string> = {
+  plaafp_assessment: "مراجعة مستوى الأداء الحالي",
+  plaafp_review: "مستوى الأداء الحالي",
+  needs_coverage: "مصفوفة تغطية الاحتياجات",
+  goal_review: "نتيجة مراجعة صياغة الأهداف",
+  revisions: "Before & After",
+  whole_plan: "الرؤية الكلية والترابط الوظيفي",
+  daily_routines: "استثمار الروتين اليومي",
+  personal_social: "المهارات الشخصية والاجتماعية",
+  transition_minimum: "الحد الأدنى من مفاهيم الانتقال",
+  transition_coverage: "مصفوفة تغطية الانتقال",
+  functional_contexts: "استثمار المواقف الفعلية",
+  vertical_alignment: "المواءمة الرأسية",
+  criteria_results: "معايير الجودة",
+  smart_review: "مراجعة SMART",
+  critical_gates: "البوابات الحرجة",
+  recommendations: "التوصيات الإشرافية",
+  plan_inventory: "حصر الأهداف والاحتياجات",
+};
+const KEY_RE = new RegExp(`\\b(${Object.keys(SECTION_NAMES).join("|")})\\b`, "g");
+export function arabicSectionRefs(t: string): string {
+  return t.replace(KEY_RE, (k) => SECTION_NAMES[k] ?? k);
 }

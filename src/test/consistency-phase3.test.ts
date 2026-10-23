@@ -59,3 +59,11 @@ describe("M-6/M-7 consistency alerts", () => {
     expect(a.find((x) => x.code === "C-REF")!.message).toContain("1 أولويات");
   });
 });
+
+import { arabicSectionRefs } from "@/lib/iep-parity";
+describe("M-7 readable references", () => {
+  it("replaces internal keys with Arabic section names", () => {
+    expect(arabicSectionRefs("توضيح الفجوة (المرجع: plaafp_assessment)")).toBe("توضيح الفجوة (المرجع: مراجعة مستوى الأداء الحالي)");
+    expect(arabicSectionRefs("(المرجع: needs_coverage — ح9)")).toContain("مصفوفة تغطية الاحتياجات — ح9");
+  });
+});

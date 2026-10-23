@@ -8,7 +8,7 @@ import {
   pillarsForReviewType,
 } from "./criteria-registry";
 import { REVIEWER_STATUS_LABELS, reviewedKeys, type IepAuditReport } from "./iep-schema";
-import { goalReviewCounts, transitionStats } from "./iep-parity";
+import { arabicSectionRefs, goalReviewCounts, transitionStats } from "./iep-parity";
 import { checkReportConsistency } from "./consistency-check";
 import { POTENTIAL_CONTEXT_STATUS } from "./functional-context-registry";
 
@@ -120,7 +120,7 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
   if (ran.has("functional_contexts")) brief.push(`المواقف المستثمرة فعلياً: ${fc.invested.length} — الفرص الوظيفية المحتملة: ${fc.potential.length}.`);
   if (ran.has("transition_coverage") && report.transition_coverage.length)
     brief.push(`تغطية الانتقال: مغطى كلياً ${ts.covered}، مغطى جزئياً ${ts.partial}، غير مغطى ${ts.uncovered}، غير قابل للتحقق ${ts.unverifiable}، لا ينطبق ${ts.na}.`, ts.label);
-  if (report.top_priorities.length) brief.push("أهم أولويات التصحيح:", ...report.top_priorities.slice(0, 3).map((t, i) => `${i + 1}. ${t}`));
+  if (report.top_priorities.length) brief.push("أهم أولويات التصحيح:", ...report.top_priorities.slice(0, 3).map((t, i) => `${i + 1}. ${arabicSectionRefs(t)}`));
   push({ id: "decision_brief", title: titleOf("decision_brief"), lines: brief });
   push({ id: "executive", title: titleOf("executive"), lines: [report.executive_summary] });
   push({ id: "decision", title: titleOf("decision"), lines: [`قرار المراجعة: ${report.review_decision}`] });
