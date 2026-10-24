@@ -27,6 +27,7 @@ import {
   CRITERIA_REGISTRY,
   CRITERION_STATES,
   CRITERION_STATE_LABELS,
+  DEFAULT_FROZEN,
   EVIDENCE_SOURCES,
   REVIEW_TYPES,
   SOURCE_STATES,
@@ -327,6 +328,9 @@ function Home() {
           Object.entries(config.sources).map(([k, v]) => [k, v === "attached" && !docs.some((d) => d.source === k) ? "unavailable" : v]),
         ) as ReviewConfig["sources"],
       };
+      // تقييم رسمي مرفق ← يُفعَّل معيار «بيانات التقييم الرسمية» إن كان مجمّداً افتراضياً
+      if (docs.some((d) => d.source === "formal_assessment") && effective.criteria["P1-2"]?.state === "frozen" && effective.criteria["P1-2"]?.reason === DEFAULT_FROZEN["P1-2"])
+        effective.criteria = { ...effective.criteria, "P1-2": { state: "active" } };
       setFileInfo({ name: planFile.name, textLength: docs[0]!.text.length });
       setReportSections(DEFAULT_REPORT_SECTIONS);
       const start = initialParts(partsForReviewType(effective.review_type));

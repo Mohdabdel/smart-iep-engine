@@ -10,6 +10,7 @@ import {
 import { REVIEWER_STATUS_LABELS, reviewedKeys, type IepAuditReport } from "./iep-schema";
 import { arabicSectionRefs, goalReviewCounts, transitionStats } from "./iep-parity";
 import { checkReportConsistency } from "./consistency-check";
+import { computeTtapPatterns, ttapTotals } from "./ttap-profile";
 import { POTENTIAL_CONTEXT_STATUS } from "./functional-context-registry";
 
 export const REPORT_SECTION_OPTIONS = [
@@ -24,6 +25,7 @@ export const REPORT_SECTION_OPTIONS = [
   { id: "standards", label: "معايير الجودة" },
   { id: "plaafp", label: "مستوى الأداء الحالي" },
   { id: "plaafp_assessment", label: "مراجعة مستوى الأداء الحالي" },
+  { id: "assessment_profile", label: "قراءة بروفايل التقييم (TTAP) ومطابقته مع الخطة" },
   { id: "smart", label: "مراجعة SMART" },
   { id: "mapping", label: "مصفوفة تغطية الاحتياجات" },
   { id: "whole_plan", label: "الرؤية الكلية والترابط الوظيفي" },
@@ -62,7 +64,7 @@ export type ReportBlock = {
 export const REPORT_CHAPTERS: { title: string; ids: ReportSectionId[] }[] = [
   { title: "التعريف ونطاق المراجعة", ids: ["summary", "scope", "criteria_config"] },
   { title: "الخلاصة والقرار", ids: ["decision_brief", "executive", "decision", "gates", "consistency"] },
-  { title: "الأساس: مستوى الأداء الحالي", ids: ["plaafp", "plaafp_assessment"] },
+  { title: "الأساس: مستوى الأداء الحالي", ids: ["plaafp", "plaafp_assessment", "assessment_profile"] },
   { title: "من الاحتياج إلى الهدف", ids: ["mapping"] },
   { title: "الأهداف", ids: ["smart", "goal_review", "before_after"] },
   { title: "الخطة ككل", ids: ["whole_plan", "vertical", "routines", "invested_contexts", "potential_contexts", "personal_social"] },
@@ -137,7 +139,7 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
   if (report.top_priorities.length) brief.push("أهم أولويات التصحيح:", ...report.top_priorities.slice(0, 3).map((t, i) => `${i + 1}. ${arabicSectionRefs(t)}`));
   push({ id: "decision_brief", title: titleOf("decision_brief"), lines: brief });
   push({ id: "executive", title: titleOf("executive"), lines: [report.executive_summary] });
-  push({ id: "decision", title: titleOf("decision"), lines: [`قرار المراجعة: ${report.review_decision}`] });
+  push({ id: "decision", title: titleOf("decision"), lines: [decisionNotIssued(report) ? "لم يصدر القرار — المرحلة الأخيرة من المراجعة لم تكتمل. استكمل المراجعة لإصداره." : `قرار المراجعة: ${report.review_decision}`] });
   const alerts = checkReportConsistency(report);
   push({
     id: "consistency",
@@ -206,6 +208,28 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
       },
     });
   push({ id: "smart", title: titleOf("smart"), lines: [report.smart_review] });
+  const tPatterns = computeTtapPatterns(report.ttap_profile);
+  const tTot = ttapTotals(report.ttap_profile);
+  const align = new Map((report.assessment_alignment ?? []).map((a) => [a.ref, a]));
+  push({
+    id: "assessment_profile",
+    title: titleOf("assessment_profile"),
+    lines: tPatterns.length
+      ? [
+          tTot ? `متوسط البنود «ناجح» لكل مجال: الملاحظة المباشرة ${tTot.do_pass ?? "—"}، المنزل ${tTot.home_pass ?? "—"}، المدرسة/العمل ${tTot.school_pass ?? "—"} (من 12).` : "",
+          "الأنماط محسوبة آلياً من أرقام التقرير، ودلالاتها مرجّحة يؤكدها المشرف. اقتراحات الربط بالسلاسل الوظيفية للاستئناس لا مرجعية.",
+        ]
+      : [],
+    table: tPatterns.length
+      ? {
+          head: ["الرمز", "المجال", "الأرقام", "النمط", "الدلالة المرجّحة", "في مستوى الأداء", "الأهداف", "الحالة", "ملاحظة", "ربط مقترح"],
+          rows: tPatterns.map((p) => {
+            const a = align.get(p.ref);
+            return [p.ref, p.area_label, p.scores, p.pattern, p.interpretation, v(a?.plaafp_reflection), a?.goal_refs.join("، ") || "—", a?.status ?? "—", v(a?.note), v(a?.suggested_chain, p.links)];
+          }),
+        }
+      : undefined,
+  });
   push({
     id: "mapping",
     title: titleOf("mapping"),
@@ -336,7 +360,7 @@ function chapterBridges(report: IepAuditReport): string[] {
   const inv = report.plan_inventory?.goals?.length ?? 0;
   return [
     `ما الذي رُوجع، ومن أي مصادر، وبأي معايير.`,
-    `الحكم العام على الخطة: ${report.review_decision}${report.critical_gates.length ? `، مع ${report.critical_gates.length} بوابة حرجة` : ""}. الفصول التالية تعرض الأساس الذي بُني عليه هذا الحكم.`,
+    (decisionNotIssued(report) ? `لم يصدر القرار بعد — المرحلة الأخيرة لم تكتمل.` : `الحكم العام على الخطة: ${report.review_decision}${report.critical_gates.length ? `، مع ${report.critical_gates.length} بوابة حرجة` : ""}. الفصول التالية تعرض الأساس الذي بُني عليه هذا الحكم.`),
     `كل أهداف الخطة تُبنى على وصف الأداء الحالي، وحكمه في هذه المراجعة: ${pa}.`,
     needs.length
       ? `من ${needs.length} احتياجاً مصرحاً به: مغطى ${nc("مغطى")}، جزئياً ${nc("مغطى جزئياً")}، غير مغطى ${nc("غير مغطى")}.`
@@ -388,6 +412,7 @@ const JSON_KEYS: Record<ReportSectionId, (keyof IepAuditReport)[]> = {
   standards: ["criteria_results"],
   plaafp: ["plaafp_review"],
   plaafp_assessment: ["plaafp_assessment"],
+  assessment_profile: ["ttap_profile", "assessment_alignment"],
   smart: ["smart_review"],
   mapping: ["needs_coverage"],
   whole_plan: ["whole_plan"],
@@ -469,4 +494,9 @@ export async function exportDocx(report: IepAuditReport, sections: ReportSection
   }
   const doc = new Document({ sections: [{ children }] });
   download(await Packer.toBlob(doc), `${fileBase(report)}.docx`);
+}
+
+/** القرار لم يصدر: المرحلة الأخيرة لم تُنتج شيئاً (قيمة افتراضية بلا موجز ولا أولويات) */
+export function decisionNotIssued(report: IepAuditReport): boolean {
+  return report.review_decision === "لا يمكن استكمال الحكم لعدم كفاية المعلومات" && !report.executive_summary.trim() && !report.top_priorities.length && !report.critical_gates.length;
 }

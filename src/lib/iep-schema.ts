@@ -195,6 +195,19 @@ const planInventoryZ = z.object({
   needs: z.array(z.object({ ref: str, need: str })),
 });
 
+/** بروفايل TTAP كما ورد في تقرير التقييم — أرقام فقط، والأنماط تُحسب في الكود */
+const numOrNull = z.number().nullable();
+const ttapProfileZ = z.object({
+  detected: z.boolean(),
+  areas: z.array(
+    z.object({ area: str, do_pass: numOrNull, do_emerge: numOrNull, home_pass: numOrNull, home_emerge: numOrNull, school_pass: numOrNull, school_emerge: numOrNull }),
+  ),
+});
+export const ALIGNMENT_STATUSES = ["معالج", "معالج جزئياً", "غير معالج", "غير قابل للتحقق"] as const;
+const assessmentAlignmentZ = z.array(
+  z.object({ ref: str, plaafp_reflection: str, goal_refs: z.array(str), status: z.enum(ALIGNMENT_STATUSES), note: str, suggested_chain: str }),
+);
+
 /** مخرجات النموذج — كل المفاتيح (يُقلَّص حسب نوع المراجعة) */
 export const modelOutputZ = z.object({
   student_info: z.object({
@@ -223,6 +236,8 @@ export const modelOutputZ = z.object({
   transition_coverage: transitionCoverageZ,
   top_priorities: z.array(str),
   plan_inventory: planInventoryZ,
+  ttap_profile: ttapProfileZ,
+  assessment_alignment: assessmentAlignmentZ,
 });
 export type ModelOutput = z.infer<typeof modelOutputZ>;
 export type ModelKey = keyof ModelOutput;
@@ -240,7 +255,7 @@ export type IepAuditReport = Omit<ModelOutput, "criteria_results" | "revisions">
   manual_notes: string[];
 };
 
-const ALWAYS: ModelKey[] = ["plan_inventory", "student_info", "executive_summary", "review_decision", "critical_gates", "recommendations"];
+const ALWAYS: ModelKey[] = ["plan_inventory", "ttap_profile", "assessment_alignment", "student_info", "executive_summary", "review_decision", "critical_gates", "recommendations"];
 /** الطبقات الإشرافية الإلزامية: مراجعة الأهداف، الاحتياج←الهدف، الرؤية الكلية، الانتقال */
 const SUPERVISORY: ModelKey[] = ["goal_review", "plaafp_assessment", "functional_contexts", "transition_coverage", "top_priorities", "needs_coverage", "whole_plan", "daily_routines", "personal_social", "transition_minimum", "revisions"];
 
@@ -283,11 +298,11 @@ function strictify(node: unknown): unknown {
  *  2 — التركيب (M-7): القرار والموجز والبوابات والأولويات تُبنى بعد نتائج الأجزاء وتحيل إليها
  */
 const PART_STAGES: ModelKey[][][] = [
-  [["student_info", "plan_inventory"]],
+  [["student_info", "plan_inventory", "ttap_profile"]],
   [
     ["criteria_results"],
     ["plaafp_review", "smart_review", "recommendations"],
-    ["needs_coverage", "whole_plan", "plaafp_assessment"],
+    ["needs_coverage", "whole_plan", "plaafp_assessment", "assessment_alignment"],
     ["daily_routines", "personal_social", "vertical_alignment"],
     ["transition_minimum", "transition_coverage", "functional_contexts"],
     ["goal_review"],
@@ -354,6 +369,8 @@ export function emptyModelOutput(): ModelOutput {
     transition_coverage: [],
     top_priorities: [],
     plan_inventory: { goals: [], needs: [] },
+    ttap_profile: { detected: false, areas: [] },
+    assessment_alignment: [],
   };
 }
 
@@ -374,6 +391,8 @@ export function normalizeReport(r: IepAuditReport): IepAuditReport {
     transition_coverage: r.transition_coverage ?? e.transition_coverage,
     top_priorities: r.top_priorities ?? [],
     plan_inventory: r.plan_inventory ?? e.plan_inventory,
+    ttap_profile: r.ttap_profile ?? e.ttap_profile,
+    assessment_alignment: r.assessment_alignment ?? [],
     manual_notes: r.manual_notes ?? [],
   };
 }

@@ -1,5 +1,6 @@
 /** تشغيل أجزاء المراجعة بصورة متحملة للفشل وقابلة للاستكمال — منطق نقي قابل للاختبار */
 import { partStage, type ModelKey, type ModelOutput } from "./iep-schema";
+import { computeTtapPatterns, type TtapPattern } from "./ttap-profile";
 import type { CaseStatus, PartStatus } from "./review-store";
 
 export type PartState = { key: string; keys: ModelKey[]; label: string; status: PartStatus; error?: string | undefined; attempts: number; result?: Partial<ModelOutput> | undefined };
@@ -108,12 +109,15 @@ export function mergeParts(parts: PartState[]): Partial<ModelOutput> {
 /** ما يُرسل مع كل جزء من نتائج الأجزاء السابقة — مختصر لا يتجاوز سقف الطلب */
 export type PartContext = {
   plan_inventory?: ModelOutput["plan_inventory"];
+  ttap_patterns?: TtapPattern[];
   digest?: Record<string, unknown>;
 };
 
 export function buildPartContext(m: Partial<ModelOutput>): PartContext {
   const ctx: PartContext = {};
   if (m.plan_inventory?.goals?.length || m.plan_inventory?.needs?.length) ctx.plan_inventory = m.plan_inventory;
+  const tp = computeTtapPatterns(m.ttap_profile);
+  if (tp.length) ctx.ttap_patterns = tp;
   const d: Record<string, unknown> = {};
   if (m.goal_review) d["goal_review"] = { goals: m.goal_review.goals.map((g) => ({ goal_number: g.goal_number, verdict: g.verdict, issue: g.issue })), recurring_patterns: m.goal_review.recurring_patterns };
   if (m.plaafp_assessment) d["plaafp_assessment"] = { judgment: m.plaafp_assessment.judgment, needs_improvement: m.plaafp_assessment.needs_improvement, constrained_judgments: m.plaafp_assessment.constrained_judgments };
@@ -124,6 +128,7 @@ export function buildPartContext(m: Partial<ModelOutput>): PartContext {
   if (m.criteria_results) d["criteria_results"] = m.criteria_results.map((f) => ({ id: f.criterion_id, status: f.status, severity: f.severity }));
   if (m.revisions) d["revisions"] = m.revisions.map((r) => ({ goal_number: r.goal_number, defect_type: r.defect_type, priority: r.priority }));
   if (m.recommendations) d["recommendations"] = m.recommendations;
+  if (m.assessment_alignment?.length) d["assessment_alignment"] = m.assessment_alignment.map((a) => ({ ref: a.ref, status: a.status, goal_refs: a.goal_refs }));
   if (Object.keys(d).length) ctx.digest = d;
   return ctx;
 }

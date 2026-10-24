@@ -10,7 +10,7 @@ const inputSchema = z.object({
     transition_applicability: z.record(z.string(), z.enum(["unset", "applies", "na"])).optional(),
   }),
   keys: z.array(z.string()).min(1),
-  context: z.object({ plan_inventory: z.unknown().optional(), digest: z.record(z.string(), z.unknown()).optional() }).optional(),
+  context: z.object({ plan_inventory: z.unknown().optional(), ttap_patterns: z.array(z.unknown()).optional(), digest: z.record(z.string(), z.unknown()).optional() }).optional(),
   documents: z
     .array(z.object({ source: z.string(), name: z.string().min(1), text: z.string() }))
     .min(1)
