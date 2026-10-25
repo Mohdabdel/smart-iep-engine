@@ -6,11 +6,13 @@ import {
   SOURCE_STATE_LABELS,
   criterionById,
   pillarsForReviewType,
+  sourceState,
 } from "./criteria-registry";
 import { REVIEWER_STATUS_LABELS, reviewedKeys, type IepAuditReport } from "./iep-schema";
 import { arabicSectionRefs, goalReviewCounts, transitionStats } from "./iep-parity";
 import { checkReportConsistency } from "./consistency-check";
 import { computeTtapPatterns, ttapTotals } from "./ttap-profile";
+import { assessmentAdequacy } from "./assessment-adequacy";
 import { POTENTIAL_CONTEXT_STATUS } from "./functional-context-registry";
 
 export const REPORT_SECTION_OPTIONS = [
@@ -25,6 +27,7 @@ export const REPORT_SECTION_OPTIONS = [
   { id: "standards", label: "معايير الجودة" },
   { id: "plaafp", label: "مستوى الأداء الحالي" },
   { id: "plaafp_assessment", label: "مراجعة مستوى الأداء الحالي" },
+  { id: "assessment_adequacy", label: "كفاية التقييم المرفق للتخطيط الانتقالي" },
   { id: "assessment_profile", label: "قراءة بروفايل التقييم (TTAP) ومطابقته مع الخطة" },
   { id: "smart", label: "مراجعة SMART" },
   { id: "mapping", label: "مصفوفة تغطية الاحتياجات" },
@@ -64,7 +67,7 @@ export type ReportBlock = {
 export const REPORT_CHAPTERS: { title: string; ids: ReportSectionId[] }[] = [
   { title: "التعريف ونطاق المراجعة", ids: ["summary", "scope", "criteria_config"] },
   { title: "الخلاصة والقرار", ids: ["decision_brief", "executive", "decision", "gates", "consistency"] },
-  { title: "الأساس: مستوى الأداء الحالي", ids: ["plaafp", "plaafp_assessment", "assessment_profile"] },
+  { title: "الأساس: مستوى الأداء الحالي", ids: ["plaafp", "plaafp_assessment", "assessment_adequacy", "assessment_profile"] },
   { title: "من الاحتياج إلى الهدف", ids: ["mapping"] },
   { title: "الأهداف", ids: ["smart", "goal_review", "before_after"] },
   { title: "الخطة ككل", ids: ["whole_plan", "vertical", "routines", "invested_contexts", "potential_contexts", "personal_social"] },
@@ -102,7 +105,7 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
     id: "scope",
     title: titleOf("scope"),
     lines: [`نوع المراجعة: ${REVIEW_TYPES.find((t) => t.id === cfg.review_type)?.label ?? cfg.review_type}`],
-    table: { head: ["المصدر", "الحالة"], rows: EVIDENCE_SOURCES.map((x) => [x.label, SOURCE_STATE_LABELS[cfg.sources[x.id]]]) },
+    table: { head: ["المصدر", "الحالة"], rows: EVIDENCE_SOURCES.map((x) => [x.label, SOURCE_STATE_LABELS[sourceState(cfg, x.id)]]) },
   });
   // M-2: الجدول يعرض معايير نطاق المراجعة فقط، وما خارجه يُختصر في سطر واحد
   const cfgRows: string[][] = [];
@@ -111,7 +114,8 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
     if (pillars.has(p.id)) {
       for (const c of p.criteria) {
         const st = cfg.criteria[c.id]?.state ?? "active";
-        cfgRows.push([c.id, c.label, CRITERION_STATE_LABELS[st], cfg.criteria[c.id]?.reason ?? ""]);
+        const waiting = c.requiresSource && !(c.sources ?? []).some((x) => sourceState(cfg, x) !== "unavailable");
+        cfgRows.push([c.id, c.label, waiting && st === "active" ? "يُفعَّل عند إرفاق تقييم" : CRITERION_STATE_LABELS[st], cfg.criteria[c.id]?.reason ?? ""]);
       }
     } else {
       const note = p.id === "P2" && ran.has("goal_review") ? " — الأهداف مراجعة إشرافياً" : "";
@@ -208,6 +212,17 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
       },
     });
   push({ id: "smart", title: titleOf("smart"), lines: [report.smart_review] });
+  const adq = assessmentAdequacy(cfg, report.ttap_profile);
+  push({
+    id: "assessment_adequacy",
+    title: titleOf("assessment_adequacy"),
+    lines: [
+      adq.verdict,
+      ...(adq.constrained.length ? [`أحكام مقيدة بنقص المصادر (لا تُحتسب خللاً في الخطة): ${adq.constrained.join("؛ ")}.`] : []),
+      ...(adq.recommendations.length ? ["توصيات باستكمال مصادر التقييم:", ...adq.recommendations.map((r, i) => `${i + 1}. ${r}`)] : []),
+    ],
+    table: { head: ["جانب الكفاية", "المصدر", "الحالة", "الأثر على المراجعة"], rows: adq.rows.map((r) => [r.aspect, r.covered_by, r.status, r.effect]) },
+  });
   const tPatterns = computeTtapPatterns(report.ttap_profile);
   const tTot = ttapTotals(report.ttap_profile);
   const align = new Map((report.assessment_alignment ?? []).map((a) => [a.ref, a]));
@@ -412,6 +427,7 @@ const JSON_KEYS: Record<ReportSectionId, (keyof IepAuditReport)[]> = {
   standards: ["criteria_results"],
   plaafp: ["plaafp_review"],
   plaafp_assessment: ["plaafp_assessment"],
+  assessment_adequacy: ["review_config"],
   assessment_profile: ["ttap_profile", "assessment_alignment"],
   smart: ["smart_review"],
   mapping: ["needs_coverage"],
@@ -440,6 +456,7 @@ export function selectJson(report: IepAuditReport, sections: ReportSections) {
   const fcs = report.functional_contexts;
   if (sections.invested_contexts !== sections.potential_contexts && out["functional_contexts"])
     out["functional_contexts"] = sections.invested_contexts ? { invested: fcs.invested } : { potential: fcs.potential };
+  if (sections.assessment_adequacy ?? true) out["assessment_adequacy"] = assessmentAdequacy(report.review_config, report.ttap_profile);
   if (sections.consistency ?? true) out["consistency_alerts"] = checkReportConsistency(report);
   if (sections.decision_brief) {
     out["decision_brief"] = { goals: goalReviewCounts(report), plaafp_judgment: report.plaafp_assessment.judgment, transition: transitionStats(report) };

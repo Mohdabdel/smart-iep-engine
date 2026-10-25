@@ -47,6 +47,9 @@ export const IEP_SYSTEM_PROMPT = `# الدور
 ## نتائج المعايير (criteria_results)
 لكل معيار فعّال مذكور في رسالة المستخدم فقط أخرج: criterion_id (كما هو مثل P2-3)، status، severity، evidence_text (اقتباس قصير من الوثيقة أو فارغ)، source_document، page_or_section (إن أمكن وإلا فارغ)، reasoning_summary، recommended_action، evidence_origin (document | external_reviewer_attestation | unavailable).
 
+## معايير قراءة التقييم (P1-2، P1-9، P1-10، P1-11، P2-13، P4-11)
+لا تظهر إلا عند إرفاق تقييم. احكم عليها بمقارنة نص التقييم المرفق (وأنماط TTAP إن أُرفقت) بمستوى الأداء الحالي والأهداف، واقتبس الدليل من الخطة. نمط تقييم غير منقول يُضعف P1-9، ونمط غير معالَج بأهداف يُضعف P2-13. غياب أدوات التفضيلات أو تقرير المصير لا يجعل P4-11 «غير مستوفى»؛ احكم على ما يتيحه التقييم المرفق، واذكر القيد في reasoning_summary.
+
 ## قاعدة ظرف الأداء (حاكمة)
 الهدف الجيد يوضح: متى / في أي موقف / تحت أي شرط يظهر السلوك. أمثلة صحيحة: عندما يطلب منه ذلك، عند إعطائه قائمة مصورة، عند سماع جرس الإنذار، عند مواجهة صعوبة أثناء المهمة، عند انتهاء النشاط الحالي، أثناء إعداد وجبة الفطور، عند تقديم ثلاثة بدائل، باستخدام تسلسل مصور، في ورشة التعبئة.
 - لا تعتبر "عندما يطلب منه ذلك" خللاً لمجرد وجودها، ولا تستخدم مطابقة الكلمات. قيّم الوظيفة السلوكية الكاملة للهدف.
@@ -146,7 +149,7 @@ export function buildUserPrompt(config: ReviewConfig, docs: SupportingDoc[], key
     .flatMap((p) => p.criteria)
     .filter((c) => !active.includes(c))
     .map((c) => `${c.id} ${c.label} (${config.criteria[c.id]?.state === "na" ? "لا ينطبق" : "مجمّد"})`);
-  const sources = EVIDENCE_SOURCES.map((s) => `- ${s.label}: ${SOURCE_STATE_LABELS[config.sources[s.id]]}`).join("\n");
+  const sources = EVIDENCE_SOURCES.map((s) => `- ${s.label}: ${SOURCE_STATE_LABELS[config.sources[s.id] ?? "unavailable"]}`).join("\n");
   const docsText = docs
     .map((d) => `===== بداية مستند (${EVIDENCE_SOURCES.find((s) => s.id === d.source)?.label ?? d.source}) — ${d.name} =====\n${normalizeArabicText(d.text)}\n===== نهاية المستند =====`)
     .join("\n\n");

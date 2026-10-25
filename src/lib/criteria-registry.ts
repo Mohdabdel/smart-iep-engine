@@ -11,14 +11,21 @@ export type EvidenceSourceId =
   | "family_input"
   | "learner_voice"
   | "progress_report"
-  | "specialist_reports";
+  | "specialist_reports"
+  | "interest_inventory"
+  | "self_determination";
 
 export type Criterion = {
   id: string;
   label: string;
   /** مصادر أدلة يُتحقق المعيار من خلالها عند توفرها خارج الوثيقة */
   sources?: EvidenceSourceId[];
+  /** لا يُقيَّم إطلاقاً ما لم يُرفق أحد مصادره — غياب المصدر ليس خللاً في الخطة */
+  requiresSource?: boolean;
 };
+
+/** مصادر التقييم التي تُفعّل معايير قراءة التقييم */
+export const ASSESSMENT_SOURCES: EvidenceSourceId[] = ["formal_assessment", "informal_assessment"];
 
 export type Pillar = { id: string; label: string; criteria: Criterion[] };
 
@@ -28,13 +35,16 @@ export const CRITERIA_REGISTRY: Pillar[] = [
     label: "مستوى الأداء الحالي",
     criteria: [
       { id: "P1-1", label: "نقاط القوة محددة ووظيفية" },
-      { id: "P1-2", label: "بيانات التقييم الرسمية عند توفرها", sources: ["formal_assessment"] },
+      { id: "P1-2", label: "مستوى الأداء يذكر أداة التقييم وتاريخها وينقل نتائجها بلغة وظيفية لا بالدرجات وحدها", sources: ["formal_assessment", "informal_assessment"], requiresSource: true },
       { id: "P1-3", label: "الاحتياجات الفردية واضحة" },
       { id: "P1-4", label: "تنوع مصادر البيانات عند توفرها", sources: ["formal_assessment", "informal_assessment", "specialist_reports"] },
       { id: "P1-5", label: "وجود خط أساس (Baseline) عندما يمكن الحكم عليه" },
       { id: "P1-6", label: "تجنب الصياغات الفضفاضة" },
       { id: "P1-7", label: "مراعاة أولويات الأسرة عندما تكون متاحة", sources: ["family_input"] },
       { id: "P1-8", label: "الربط المنطقي بين الأداء الحالي والأهداف" },
+      { id: "P1-9", label: "أمانة النقل: نقاط القوة والمهارات الناشئة في التقييم منقولة إلى مستوى الأداء دون إغفال أو تناقض", sources: ["formal_assessment", "informal_assessment"], requiresSource: true },
+      { id: "P1-10", label: "خط أساس مستمد من التقييم حيث يتيح ذلك (مثل: يؤدي المهمة جزئياً لما كان ناشئاً)", sources: ["formal_assessment", "informal_assessment"], requiresSource: true },
+      { id: "P1-11", label: "وصف الفروق بين السياقات: ما يؤديه المتعلم في الملاحظة المباشرة والمدرسة والمنزل", sources: ["formal_assessment", "informal_assessment"], requiresSource: true },
     ],
   },
   {
@@ -53,6 +63,7 @@ export const CRITERIA_REGISTRY: Pillar[] = [
       { id: "P2-10", label: "قيمة وظيفية" },
       { id: "P2-11", label: "قابلية جمع بيانات الأداء" },
       { id: "P2-12", label: "نوع قياس مناسب لطبيعة السلوك" },
+      { id: "P2-13", label: "الأهداف تعالج أولويات التقييم: المهارات الناشئة والفروق الدالة يقابلها أهداف", sources: ["formal_assessment", "informal_assessment"], requiresSource: true },
     ],
   },
   {
@@ -80,6 +91,7 @@ export const CRITERIA_REGISTRY: Pillar[] = [
       { id: "P4-8", label: "إدارة الوقت والروتين" },
       { id: "P4-9", label: "الترفيه ووقت الفراغ" },
       { id: "P4-10", label: "الاستعداد لأدوار ما بعد التخرج" },
+      { id: "P4-11", label: "الأهداف الانتقالية مبنية على تقييم انتقالي مناسب للعمر ونتائجه مرتبطة بها بوضوح", sources: ["formal_assessment", "informal_assessment"], requiresSource: true },
     ],
   },
 ];
@@ -97,7 +109,6 @@ export const CRITERION_STATE_LABELS: Record<CriterionState, string> = {
 
 /** البنود المجمدة افتراضياً (قرار تجميد مؤقت سابق) */
 export const DEFAULT_FROZEN: Record<string, string> = {
-  "P1-2": "تجميد مؤقت: ذكر وتحديد أداة التقييم",
   "P1-4": "تجميد مؤقت: تنوع أدوات التقييم",
   "P1-7": "تجميد مؤقت: حصر أولويات الأسرة",
   "P3-2": "تجميد مؤقت: التوقيعات",
@@ -113,6 +124,8 @@ export const EVIDENCE_SOURCES: { id: EvidenceSourceId; label: string }[] = [
   { id: "learner_voice", label: "صوت المتعلم" },
   { id: "progress_report", label: "تقرير تقدم" },
   { id: "specialist_reports", label: "تقارير تخصصية" },
+  { id: "interest_inventory", label: "استبيان الميول والتفضيلات" },
+  { id: "self_determination", label: "أداة تقرير المصير" },
 ];
 
 export const SOURCE_STATES = ["attached", "external_verified", "unavailable"] as const;
@@ -176,5 +189,9 @@ export function activeCriteria(config: ReviewConfig): Criterion[] {
   const pillars = new Set(pillarsForReviewType(config.review_type));
   return CRITERIA_REGISTRY.filter((p) => pillars.has(p.id))
     .flatMap((p) => p.criteria)
-    .filter((c) => (config.criteria[c.id]?.state ?? "active") === "active");
+    .filter((c) => (config.criteria[c.id]?.state ?? "active") === "active")
+    .filter((c) => !c.requiresSource || (c.sources ?? []).some((s) => config.sources[s] === "attached" || config.sources[s] === "external_verified"));
 }
+
+/** حالة المصدر مع توافق رجعي للإعدادات المحفوظة قبل إضافة مصادر جديدة */
+export const sourceState = (config: ReviewConfig, id: EvidenceSourceId): SourceState => config.sources[id] ?? "unavailable";

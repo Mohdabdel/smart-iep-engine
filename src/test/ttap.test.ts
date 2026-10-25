@@ -33,3 +33,29 @@ describe("TTAP profile reading", () => {
     expect(buildReportBlocks(r).find((x) => x.id === "decision")!.lines[0]).toContain("لم يصدر القرار");
   });
 });
+
+import { activeCriteria } from "@/lib/criteria-registry";
+import { assessmentAdequacy } from "@/lib/assessment-adequacy";
+describe("assessment criteria and adequacy", () => {
+  it("assessment criteria activate only when an assessment is attached", () => {
+    const cfg = defaultReviewConfig();
+    expect(activeCriteria(cfg).some((c) => c.id === "P1-9")).toBe(false);
+    cfg.sources.formal_assessment = "attached";
+    const ids = activeCriteria(cfg).map((c) => c.id);
+    for (const id of ["P1-2", "P1-9", "P1-10", "P1-11", "P2-13", "P4-11"]) expect(ids).toContain(id);
+  });
+  it("judges TTAP as age-appropriate but recommends interests and self-determination tools", () => {
+    const cfg = defaultReviewConfig();
+    cfg.sources.formal_assessment = "attached";
+    const a = assessmentAdequacy(cfg, profile);
+    expect(a.rows[0]!.status).toBe("مغطى");
+    expect(a.rows.find((r) => r.aspect.includes("التفضيلات"))!.status).toBe("غير مغطى");
+    expect(a.recommendations.join(" ")).toContain("ميول");
+    expect(a.rows.find((r) => r.aspect.includes("الأسرة"))!.covered_by).toContain("TTAP");
+  });
+  it("old saved configs without new sources still work", () => {
+    const cfg = defaultReviewConfig();
+    delete (cfg.sources as Record<string, unknown>)["interest_inventory"];
+    expect(() => assessmentAdequacy(cfg, null)).not.toThrow();
+  });
+});

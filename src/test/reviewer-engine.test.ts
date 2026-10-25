@@ -71,11 +71,11 @@ describe("reviewer engine parity", () => {
 
   it("TEST-07: frozen criteria are excluded from findings and listed in the config section", () => {
     const cfg = defaultReviewConfig();
-    expect(activeCriteria(cfg).some((c) => c.id === "P1-2")).toBe(false);
-    const r = build({ criteria_results: [finding("P1-2"), finding("P2-1")] }, cfg);
+    expect(activeCriteria(cfg).some((c) => c.id === "P1-4")).toBe(false);
+    const r = build({ criteria_results: [finding("P1-4"), finding("P2-1")] }, cfg);
     expect(r.report.criteria_results.map((f) => f.criterion_id)).toEqual(["P2-1"]);
     const block = buildReportBlocks(r.report).find((b) => b.id === "criteria_config")!;
-    expect(block.table!.rows.find((row) => row[0] === "P1-2")![2]).toBe("مجمّد");
+    expect(block.table!.rows.find((row) => row[0] === "P1-4")![2]).toBe("مجمّد");
   });
 
   it("TEST-10/11: missing previous plan is not a gap; attached previous plan keeps vertical alignment", () => {
