@@ -10,7 +10,7 @@ const docs = [
 
 describe("cost controls", () => {
   it("sends each part only the documents it needs, current plan first", () => {
-    expect(docsForKeys(docs, ["goal_review"]).map((d) => d.source)).toEqual(["current_plan"]);
+    expect(docsForKeys(docs, ["goal_review"]).map((d) => d.source)).toEqual(["current_plan", "previous_plan"]);
     expect(docsForKeys(docs, ["revisions"]).map((d) => d.source)).toEqual(["current_plan"]);
     expect(docsForKeys(docs, ["daily_routines", "personal_social", "vertical_alignment"]).map((d) => d.source)).toEqual(["current_plan", "previous_plan"]);
     expect(docsForKeys(docs, ["student_info", "plan_inventory", "ttap_profile"]).map((d) => d.source)).toEqual(["current_plan", "formal_assessment"]);
@@ -18,7 +18,7 @@ describe("cost controls", () => {
   });
   it("puts documents first so the shared prefix is identical across parts", () => {
     const cfg = defaultReviewConfig();
-    const a = buildUserPrompt(cfg, docs, ["goal_review"]);
+    const a = buildUserPrompt(cfg, docs, ["smart_review"]);
     const b = buildUserPrompt(cfg, docs, ["revisions"]);
     expect(a.startsWith("===== بداية مستند")).toBe(true);
     const shared = a.slice(0, a.indexOf("أخرج فقط المفاتيح"));

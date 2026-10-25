@@ -1,3 +1,4 @@
+import { JOURNEY_CATEGORIES } from "./goal-journey";
 import { z } from "zod/v4";
 
 import type { ReviewConfig, ReviewType } from "./criteria-registry";
@@ -208,6 +209,24 @@ const assessmentAlignmentZ = z.array(
   z.object({ ref: str, plaafp_reflection: str, goal_refs: z.array(str), status: z.enum(ALIGNMENT_STATUSES), note: str, suggested_chain: str }),
 );
 
+/** رحلة الأهداف من الخطة السابقة (تصنيف داخلي + توصية لكل هدف) */
+const goalJourneyZ = z.object({
+  previous_promise: str,
+  promise_in_life: str,
+  items: z.array(
+    z.object({
+      ref: str,
+      previous_goal: str,
+      progress_in_plaafp: str,
+      assessment_evidence: str,
+      current_refs: z.array(str),
+      category: z.enum(JOURNEY_CATEGORIES),
+      isolated_mastery: z.boolean(),
+      recommendation: str,
+    }),
+  ),
+});
+
 /** مخرجات النموذج — كل المفاتيح (يُقلَّص حسب نوع المراجعة) */
 export const modelOutputZ = z.object({
   student_info: z.object({
@@ -238,6 +257,8 @@ export const modelOutputZ = z.object({
   plan_inventory: planInventoryZ,
   ttap_profile: ttapProfileZ,
   assessment_alignment: assessmentAlignmentZ,
+  initial_vision: str,
+  goal_journey: goalJourneyZ,
 });
 export type ModelOutput = z.infer<typeof modelOutputZ>;
 export type ModelKey = keyof ModelOutput;
@@ -255,7 +276,7 @@ export type IepAuditReport = Omit<ModelOutput, "criteria_results" | "revisions">
   manual_notes: string[];
 };
 
-const ALWAYS: ModelKey[] = ["plan_inventory", "ttap_profile", "assessment_alignment", "student_info", "executive_summary", "review_decision", "critical_gates", "recommendations"];
+const ALWAYS: ModelKey[] = ["plan_inventory", "ttap_profile", "assessment_alignment", "initial_vision", "goal_journey", "student_info", "executive_summary", "review_decision", "critical_gates", "recommendations"];
 /** الطبقات الإشرافية الإلزامية: مراجعة الأهداف، الاحتياج←الهدف، الرؤية الكلية، الانتقال */
 const SUPERVISORY: ModelKey[] = ["goal_review", "plaafp_assessment", "functional_contexts", "transition_coverage", "top_priorities", "needs_coverage", "whole_plan", "daily_routines", "personal_social", "transition_minimum", "revisions"];
 
@@ -298,13 +319,14 @@ function strictify(node: unknown): unknown {
  *  2 — التركيب (M-7): القرار والموجز والبوابات والأولويات تُبنى بعد نتائج الأجزاء وتحيل إليها
  */
 const PART_STAGES: ModelKey[][][] = [
-  [["student_info", "plan_inventory", "ttap_profile"]],
+  [["student_info", "plan_inventory", "ttap_profile"], ["initial_vision"]],
   [
     ["criteria_results"],
     ["plaafp_review", "smart_review", "recommendations"],
     ["needs_coverage", "plaafp_assessment"],
     ["whole_plan", "assessment_alignment"],
     ["daily_routines", "personal_social", "vertical_alignment"],
+    ["goal_journey"],
     ["transition_minimum", "transition_coverage"],
     ["functional_contexts"],
     ["goal_review"],
@@ -373,6 +395,8 @@ export function emptyModelOutput(): ModelOutput {
     plan_inventory: { goals: [], needs: [] },
     ttap_profile: { detected: false, areas: [] },
     assessment_alignment: [],
+    initial_vision: "",
+    goal_journey: { previous_promise: "", promise_in_life: "", items: [] },
   };
 }
 
@@ -395,6 +419,8 @@ export function normalizeReport(r: IepAuditReport): IepAuditReport {
     plan_inventory: r.plan_inventory ?? e.plan_inventory,
     ttap_profile: r.ttap_profile ?? e.ttap_profile,
     assessment_alignment: r.assessment_alignment ?? [],
+    initial_vision: r.initial_vision ?? "",
+    goal_journey: r.goal_journey ?? e.goal_journey,
     manual_notes: r.manual_notes ?? [],
   };
 }

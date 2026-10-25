@@ -9,6 +9,8 @@ export const partKey = (keys: ModelKey[]) => keys.join("+");
 
 export function partLabel(keys: ModelKey[]) {
   if (keys.includes("plan_inventory")) return "حصر الأهداف والاحتياجات";
+  if (keys.includes("initial_vision")) return "الصورة الكلية للمتعلم";
+  if (keys.includes("goal_journey")) return "رحلة الأهداف من الخطة السابقة";
   if (keys.includes("review_decision")) return "القرار والموجز والأولويات";
   if (keys.includes("goal_review")) return "مراجعة صياغة الأهداف";
   if (keys.includes("revisions")) return "التعديلات المقترحة (Before & After)";
@@ -112,6 +114,7 @@ export function mergeParts(parts: PartState[]): Partial<ModelOutput> {
 export type PartContext = {
   plan_inventory?: ModelOutput["plan_inventory"];
   ttap_patterns?: TtapPattern[];
+  initial_vision?: string;
   digest?: Record<string, unknown>;
 };
 
@@ -120,6 +123,7 @@ export function buildPartContext(m: Partial<ModelOutput>): PartContext {
   if (m.plan_inventory?.goals?.length || m.plan_inventory?.needs?.length) ctx.plan_inventory = m.plan_inventory;
   const tp = computeTtapPatterns(m.ttap_profile);
   if (tp.length) ctx.ttap_patterns = tp;
+  if (m.initial_vision?.trim()) ctx.initial_vision = m.initial_vision.slice(0, 1500);
   const d: Record<string, unknown> = {};
   if (m.goal_review) d["goal_review"] = { goals: m.goal_review.goals.map((g) => ({ goal_number: g.goal_number, verdict: g.verdict, issue: g.issue })), recurring_patterns: m.goal_review.recurring_patterns };
   if (m.plaafp_assessment) d["plaafp_assessment"] = { judgment: m.plaafp_assessment.judgment, needs_improvement: m.plaafp_assessment.needs_improvement, constrained_judgments: m.plaafp_assessment.constrained_judgments };
@@ -130,7 +134,8 @@ export function buildPartContext(m: Partial<ModelOutput>): PartContext {
   if (m.criteria_results) d["criteria_results"] = m.criteria_results.map((f) => ({ id: f.criterion_id, status: f.status, severity: f.severity }));
   if (m.revisions) d["revisions"] = m.revisions.map((r) => ({ goal_number: r.goal_number, defect_type: r.defect_type, priority: r.priority }));
   if (m.recommendations) d["recommendations"] = m.recommendations;
-  if (m.assessment_alignment?.length) d["assessment_alignment"] = m.assessment_alignment.map((a) => ({ ref: a.ref, status: a.status, goal_refs: a.goal_refs }));
+  if (m.assessment_alignment?.length) d["assessment_alignment"] = m.assessment_alignment.map((a) => ({ ref: a.ref, status: a.status, goal_refs: a.goal_refs, suggestion: a.suggested_chain }));
+  if (m.goal_journey?.items?.length) d["goal_journey"] = m.goal_journey.items.map((i) => ({ ref: i.ref, category: i.category, current_refs: i.current_refs, isolated: i.isolated_mastery, recommendation: i.recommendation }));
   if (Object.keys(d).length) ctx.digest = d;
   return ctx;
 }

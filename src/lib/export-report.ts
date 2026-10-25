@@ -13,6 +13,7 @@ import { arabicSectionRefs, goalReviewCounts, transitionStats } from "./iep-pari
 import { checkReportConsistency } from "./consistency-check";
 import { computeTtapPatterns, ttapTotals } from "./ttap-profile";
 import { assessmentAdequacy } from "./assessment-adequacy";
+import { JOURNEY_PHRASES, himamReading } from "./goal-journey";
 import { POTENTIAL_CONTEXT_STATUS } from "./functional-context-registry";
 
 export const REPORT_SECTION_OPTIONS = [
@@ -25,10 +26,12 @@ export const REPORT_SECTION_OPTIONS = [
   { id: "consistency", label: "تنبيهات اتساق للمشرف" },
   { id: "gates", label: "البوابات الحرجة" },
   { id: "standards", label: "معايير الجودة" },
+  { id: "initial_vision", label: "الصورة الكلية للمتعلم" },
   { id: "plaafp", label: "مستوى الأداء الحالي" },
   { id: "plaafp_assessment", label: "مراجعة مستوى الأداء الحالي" },
   { id: "assessment_adequacy", label: "كفاية التقييم المرفق للتخطيط الانتقالي" },
   { id: "assessment_profile", label: "قراءة بروفايل التقييم (TTAP) ومطابقته مع الخطة" },
+  { id: "goal_journey", label: "رحلة المتعلم من الخطة السابقة إلى الحالية" },
   { id: "smart", label: "مراجعة SMART" },
   { id: "mapping", label: "مصفوفة تغطية الاحتياجات" },
   { id: "whole_plan", label: "الرؤية الكلية والترابط الوظيفي" },
@@ -67,7 +70,7 @@ export type ReportBlock = {
 export const REPORT_CHAPTERS: { title: string; ids: ReportSectionId[] }[] = [
   { title: "التعريف ونطاق المراجعة", ids: ["summary", "scope", "criteria_config"] },
   { title: "الخلاصة والقرار", ids: ["decision_brief", "executive", "decision", "gates", "consistency"] },
-  { title: "الأساس: مستوى الأداء الحالي", ids: ["plaafp", "plaafp_assessment", "assessment_adequacy", "assessment_profile"] },
+  { title: "الأساس: مستوى الأداء الحالي", ids: ["initial_vision", "plaafp", "plaafp_assessment", "assessment_adequacy", "assessment_profile", "goal_journey"] },
   { title: "من الاحتياج إلى الهدف", ids: ["mapping"] },
   { title: "الأهداف", ids: ["smart", "goal_review", "before_after"] },
   { title: "الخطة ككل", ids: ["whole_plan", "vertical", "routines", "invested_contexts", "potential_contexts", "personal_social"] },
@@ -99,7 +102,10 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
   push({
     id: "summary",
     title: titleOf("summary"),
-    lines: [`الاسم: ${v(s.student_name)} — العمر: ${s.age ?? "غير محدد"} — نوع الإعاقة: ${v(s.disability_type)} — المركز/المدرسة: ${v(s.school_center, "غير محدد")}`],
+    lines: [
+      `الاسم: ${v(s.student_name)} — العمر: ${s.age ?? "غير محدد"} — نوع الإعاقة: ${v(s.disability_type)} — المركز/المدرسة: ${v(s.school_center, "غير محدد")}`,
+      typeof s.age === "number" && s.age < 12 ? "ملاحظة: المحرك مصمم أساساً للفئة من 12 عاماً حتى التخرج، وتمت المراجعة بمعايير هذه الفئة." : "",
+    ],
   });
   push({
     id: "scope",
@@ -212,6 +218,7 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
       },
     });
   push({ id: "smart", title: titleOf("smart"), lines: [report.smart_review] });
+  push({ id: "initial_vision", title: titleOf("initial_vision"), lines: [report.initial_vision ?? ""] });
   const adq = assessmentAdequacy(cfg, report.ttap_profile);
   push({
     id: "assessment_adequacy",
@@ -242,6 +249,19 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
             const a = align.get(p.ref);
             return [p.ref, p.area_label, p.scores, p.pattern, p.interpretation, v(a?.plaafp_reflection), a?.goal_refs.join("، ") || "—", a?.status ?? "—", v(a?.note), v(a?.suggested_chain, p.links)];
           }),
+        }
+      : undefined,
+  });
+  const gj = report.goal_journey;
+  const hr = himamReading(report);
+  push({
+    id: "goal_journey",
+    title: titleOf("goal_journey"),
+    lines: hr ? ["قراءة همم: المتعلم في حياته عبر الخطط", ...hr.lines] : [],
+    table: gj?.items?.length
+      ? {
+          head: ["الهدف السابق", "التقدم في مستوى الأداء", "في التقييم", "الهدف الحالي", "مسار الهدف", "توصية لتحسين الخطة"],
+          rows: gj.items.map((i) => [`${i.ref} ${i.previous_goal}`, v(i.progress_in_plaafp), v(i.assessment_evidence), i.current_refs.join("، ") || "—", JOURNEY_PHRASES[i.category] + (i.isolated_mastery ? " — أُتقن منفرداً" : ""), v(i.recommendation)]),
         }
       : undefined,
   });
@@ -429,6 +449,8 @@ const JSON_KEYS: Record<ReportSectionId, (keyof IepAuditReport)[]> = {
   plaafp_assessment: ["plaafp_assessment"],
   assessment_adequacy: ["review_config"],
   assessment_profile: ["ttap_profile", "assessment_alignment"],
+  initial_vision: ["initial_vision"],
+  goal_journey: ["goal_journey"],
   smart: ["smart_review"],
   mapping: ["needs_coverage"],
   whole_plan: ["whole_plan"],

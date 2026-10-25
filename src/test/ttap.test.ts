@@ -86,3 +86,26 @@ describe("TTAP area names as written by the model", () => {
     expect(p.find((x) => x.area === "IB")!.pattern).toBe("الأداء المباشر أعلى من المنزل والمدرسة");
   });
 });
+
+import { himamReading, JOURNEY_PHRASES } from "@/lib/goal-journey";
+describe("goal journey and HIMAM reading", () => {
+  it("activates previous-plan criteria only when attached and phrases categories positively", () => {
+    const cfg = defaultReviewConfig();
+    expect(activeCriteria(cfg).some((c) => c.id === "P1-12")).toBe(false);
+    cfg.sources.previous_plan = "attached";
+    expect(activeCriteria(cfg).map((c) => c.id)).toEqual(expect.arrayContaining(["P1-12", "P1-13", "P2-14"]));
+    expect(JOURNEY_PHRASES["تكرار بلا معالجة"]).not.toContain("تكرار");
+  });
+  it("computes the pattern in code and renders the journey section", () => {
+    const item = (ref: string, category: "تكرار بلا معالجة" | "امتداد سليم", iso = false) => ({ ref, previous_goal: "x", progress_in_plaafp: "", assessment_evidence: "", current_refs: ["هـ1"], category, isolated_mastery: iso, recommendation: "ربط هـ1 في نشاط" });
+    const cfg = defaultReviewConfig();
+    cfg.sources.previous_plan = "attached";
+    const r = toReport({ ...emptyModelOutput(), goal_journey: { previous_promise: "", promise_in_life: "", items: [item("ق1", "تكرار بلا معالجة", true), item("ق2", "تكرار بلا معالجة"), item("ق3", "امتداد سليم")] } }, cfg);
+    const h = himamReading(r)!;
+    expect(h.pattern).toBe(true);
+    expect(h.isolated).toBe(1);
+    const b = buildReportBlocks(r).find((x) => x.id === "goal_journey")!;
+    expect(b.lines[0]).toContain("قراءة همم");
+    expect(b.table!.rows[0]![5]).toContain("ربط هـ1");
+  });
+});

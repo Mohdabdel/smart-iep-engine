@@ -106,6 +106,7 @@ export function applyReviewerParity(report: IepAuditReport, config: ReviewConfig
   // 6) الخطة السابقة غير مرفقة → لا مواءمة رأسية ولا نقص
   const vertical_alignment =
     config.sources.previous_plan === "attached" ? report.vertical_alignment : { available: false, comment: "", items: [] };
+  const goal_journey = config.sources.previous_plan === "attached" ? report.goal_journey : { previous_promise: "", promise_in_life: "", items: [] };
 
   // 6ب) مراجعة صياغة الأهداف: كل هدف له تعديل مقترح يُحسب «يحتاج تعديل»
   const norm = (t: string) => t.replace(/\s+/g, " ").trim();
@@ -174,6 +175,7 @@ export function applyReviewerParity(report: IepAuditReport, config: ReviewConfig
       recommendations,
       critical_gates,
       vertical_alignment,
+      goal_journey,
       review_decision,
       goal_review,
       plaafp_assessment,
@@ -257,6 +259,9 @@ export const SECTION_NAMES: Record<string, string> = {
   critical_gates: "البوابات الحرجة",
   recommendations: "التوصيات الإشرافية",
   plan_inventory: "حصر الأهداف والاحتياجات",
+  goal_journey: "رحلة المتعلم من الخطة السابقة",
+  assessment_alignment: "قراءة بروفايل التقييم",
+  initial_vision: "الصورة الكلية للمتعلم",
 };
 const KEY_RE = new RegExp(`\\b(${Object.keys(SECTION_NAMES).join("|")})\\b`, "g");
 export function arabicSectionRefs(t: string): string {
