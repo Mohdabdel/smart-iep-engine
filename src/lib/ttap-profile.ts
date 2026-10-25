@@ -39,13 +39,30 @@ export type TtapPattern = {
   links: string; // السلاسل ومفاهيم الانتقال المقترح ربطها (اقتراح لا مرجع)
 };
 
+/** يتعرف على المجال من رمزه أو من اسمه العربي/الإنجليزي كما قد يكتبه النموذج */
+export function resolveTtapArea(raw: string | null | undefined): TtapAreaCode | null {
+  const t = (raw ?? "").trim();
+  const up = t.toUpperCase();
+  for (const c of ["VS", "VB", "IF", "LS", "FC", "IB"] as const) if (up === c || up.startsWith(c + " ") || up.includes(`(${c})`)) return c;
+  const has = (...w: string[]) => w.some((x) => t.includes(x) || up.includes(x.toUpperCase()));
+  if (has("سلوك") && has("مهن")) return "VB";
+  if (has("vocational behav")) return "VB";
+  if (has("سلوك") && has("بين", "شخص", "اجتماع")) return "IB";
+  if (has("interpersonal")) return "IB";
+  if (has("مهن", "vocational skill")) return "VS";
+  if (has("مستقل", "استقلال", "independent")) return "IF";
+  if (has("ترفيه", "فراغ", "leisure")) return "LS";
+  if (has("تواصل", "communication")) return "FC";
+  return null;
+}
+
 const n = (x: number | null | undefined) => (typeof x === "number" && Number.isFinite(x) ? x : null);
 
 export function computeTtapPatterns(profile: TtapProfile | null | undefined, threshold = TTAP_DIFF_THRESHOLD): TtapPattern[] {
   if (!profile?.detected) return [];
   const out: TtapPattern[] = [];
   for (const meta of TTAP_AREAS) {
-    const a = profile.areas.find((x) => x.area?.toUpperCase() === meta.code);
+    const a = profile.areas.find((x) => resolveTtapArea(x.area) === meta.code);
     if (!a) continue;
     const d = n(a.do_pass), h = n(a.home_pass), s = n(a.school_pass);
     if (d === null && h === null && s === null) continue;

@@ -59,3 +59,30 @@ describe("assessment criteria and adequacy", () => {
     expect(() => assessmentAdequacy(cfg, null)).not.toThrow();
   });
 });
+
+import { resolveTtapArea } from "@/lib/ttap-profile";
+describe("TTAP area names as written by the model", () => {
+  it("maps Arabic names to codes", () => {
+    expect(resolveTtapArea("المهارات المهنية")).toBe("VS");
+    expect(resolveTtapArea("السلوكيات المهنية")).toBe("VB");
+    expect(resolveTtapArea("الأداء الوظيفي المستقل")).toBe("IF");
+    expect(resolveTtapArea("مهارات الترفيه")).toBe("LS");
+    expect(resolveTtapArea("التواصل الوظيفي")).toBe("FC");
+    expect(resolveTtapArea("السلوك البينشخصي")).toBe("IB");
+    expect(resolveTtapArea("VB")).toBe("VB");
+  });
+  it("reads the real staging profile into six patterns", () => {
+    const real = { detected: true, areas: [
+      { area: "المهارات المهنية", do_pass: 8, do_emerge: 4, home_pass: 6, home_emerge: 4, school_pass: 7, school_emerge: 5 },
+      { area: "السلوكيات المهنية", do_pass: 12, do_emerge: 0, home_pass: 6, home_emerge: 6, school_pass: 10, school_emerge: 2 },
+      { area: "الأداء الوظيفي المستقل", do_pass: 7, do_emerge: 3, home_pass: 3, home_emerge: 6, school_pass: 9, school_emerge: 2 },
+      { area: "مهارات الترفيه", do_pass: 8, do_emerge: 2, home_pass: 4, home_emerge: 7, school_pass: 8, school_emerge: 4 },
+      { area: "التواصل الوظيفي", do_pass: 9, do_emerge: 1, home_pass: 6, home_emerge: 6, school_pass: 8, school_emerge: 4 },
+      { area: "السلوك البينشخصي", do_pass: 12, do_emerge: 0, home_pass: 7, home_emerge: 3, school_pass: 7, school_emerge: 3 },
+    ] };
+    const p = computeTtapPatterns(real);
+    expect(p).toHaveLength(6);
+    expect(p.find((x) => x.area === "IF")!.pattern).toBe("المنزل أدنى من الأداء المباشر أو المدرسة");
+    expect(p.find((x) => x.area === "IB")!.pattern).toBe("الأداء المباشر أعلى من المنزل والمدرسة");
+  });
+});
