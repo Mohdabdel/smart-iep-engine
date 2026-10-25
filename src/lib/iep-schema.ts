@@ -302,9 +302,11 @@ const PART_STAGES: ModelKey[][][] = [
   [
     ["criteria_results"],
     ["plaafp_review", "smart_review", "recommendations"],
-    ["needs_coverage", "whole_plan", "plaafp_assessment", "assessment_alignment"],
+    ["needs_coverage", "plaafp_assessment"],
+    ["whole_plan", "assessment_alignment"],
     ["daily_routines", "personal_social", "vertical_alignment"],
-    ["transition_minimum", "transition_coverage", "functional_contexts"],
+    ["transition_minimum", "transition_coverage"],
+    ["functional_contexts"],
     ["goal_review"],
     ["revisions"],
   ],

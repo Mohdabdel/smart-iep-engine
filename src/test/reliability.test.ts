@@ -22,7 +22,7 @@ function setup(failKey?: string, retriable = false) {
 }
 
 describe("resumable orchestration", () => {
-  it("has 9 parts for a full review (inventory + 7 analytic + synthesis)", () => expect(buckets).toHaveLength(9));
+  it("has 11 parts for a full review (inventory + 9 analytic + synthesis)", () => expect(buckets).toHaveLength(11));
 
   it("TEST-R1: one failing part leaves 3 completed and case partial", async () => {
     const fk = initialParts(buckets)[2]!.key;

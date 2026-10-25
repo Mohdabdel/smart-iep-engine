@@ -12,8 +12,10 @@ export function partLabel(keys: ModelKey[]) {
   if (keys.includes("review_decision")) return "القرار والموجز والأولويات";
   if (keys.includes("goal_review")) return "مراجعة صياغة الأهداف";
   if (keys.includes("revisions")) return "التعديلات المقترحة (Before & After)";
-  if (keys.includes("transition_coverage") || keys.includes("functional_contexts") || keys.includes("transition_minimum")) return "مفاهيم الانتقال والمواقف الوظيفية";
-  if (keys.includes("needs_coverage") || keys.includes("whole_plan") || keys.includes("plaafp_assessment")) return "مستوى الأداء الحالي والرؤية الكلية";
+  if (keys.includes("functional_contexts")) return "المواقف الوظيفية";
+  if (keys.includes("transition_coverage") || keys.includes("transition_minimum")) return "مفاهيم الانتقال";
+  if (keys.includes("assessment_alignment") || keys.includes("whole_plan")) return "الرؤية الكلية ومطابقة التقييم";
+  if (keys.includes("needs_coverage") || keys.includes("plaafp_assessment")) return "مستوى الأداء الحالي وتغطية الاحتياجات";
   if (keys.includes("daily_routines") || keys.includes("personal_social") || keys.includes("vertical_alignment")) return "الروتين اليومي والجانب الشخصي";
   if (keys.includes("criteria_results")) return "معايير الجودة";
   if (keys.includes("plaafp_review") || keys.includes("smart_review") || keys.includes("recommendations")) return "الملاحظات والتوصيات والأولويات";
