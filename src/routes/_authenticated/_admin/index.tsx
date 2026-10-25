@@ -287,7 +287,7 @@ function Home() {
     if (!runConfig) return;
     const d = docs ?? (caseId ? cachedCaseDocuments(caseId) : null);
     if (!d) {
-      setError("نص الخطة غير متوفر على هذا الجهاز لاستكمال المراجعة — ابدأ مراجعة جديدة بنفس الملف.");
+      setError("نصوص المستندات لا تُحفظ بعد اكتمال المراجعة حمايةً لبيانات الطالب، لذا لا يمكن إعادة تشغيل جزء منها. ابدأ مراجعة جديدة بالملفات نفسها.");
       return;
     }
     setError(null);
@@ -540,7 +540,7 @@ function Home() {
             }}
           />
         )}
-        {!result && stage === "idle" && parts.length > 0 && error && (
+        {stage === "idle" && parts.length > 0 && error && (
           <div className="mb-4 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
         )}
 
