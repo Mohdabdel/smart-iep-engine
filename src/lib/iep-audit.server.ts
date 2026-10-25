@@ -1,6 +1,7 @@
 import { normalizeArabicText } from "./arabic-normalize";
 import { Output, jsonSchema, streamText } from "ai";
 
+import { createHash } from "node:crypto";
 import { createIepAiProvider } from "./ai-provider.server";
 import type { PartContext } from "./review-orchestrator";
 import { POTENTIAL_CONTEXT_STATUS, contextBankPromptText } from "./functional-context-registry";
@@ -150,7 +151,7 @@ export function buildUserPrompt(config: ReviewConfig, docs: SupportingDoc[], key
     .filter((c) => !active.includes(c))
     .map((c) => `${c.id} ${c.label} (${config.criteria[c.id]?.state === "na" ? "لا ينطبق" : "مجمّد"})`);
   const sources = EVIDENCE_SOURCES.map((s) => `- ${s.label}: ${SOURCE_STATE_LABELS[config.sources[s.id] ?? "unavailable"]}`).join("\n");
-  const docsText = docs
+  const docsText = docsForKeys(docs, keys)
     .map((d) => `===== بداية مستند (${EVIDENCE_SOURCES.find((s) => s.id === d.source)?.label ?? d.source}) — ${d.name} =====\n${normalizeArabicText(d.text)}\n===== نهاية المستند =====`)
     .join("\n\n");
   const extra =
@@ -165,7 +166,11 @@ export function buildUserPrompt(config: ReviewConfig, docs: SupportingDoc[], key
     config.review_type === "supervisory"
       ? "\nالمراجعة الإشرافية النوعية تنفذ إلزامياً أربع طبقات: مراجعة صياغة كل هدف، تغطية الاحتياج ← الهدف، الرؤية الكلية والترابط، ومراجعة الانتقال — حتى مع خروج معايير الجودة الرسمية من النطاق."
       : "";
-  return `نوع المراجعة: ${reviewType}${extra}${supervisoryNote}${transitionNote}
+  // ترتيب ثابت يخدم التخزين المؤقت لدى المزوّد: المستندات أولاً (متطابقة بين الأجزاء)،
+  // ثم نطاق المراجعة (متطابق)، ثم ما يخص هذا الجزء في النهاية.
+  return `${docsText}
+
+نوع المراجعة: ${reviewType}${extra}${supervisoryNote}${transitionNote}
 
 مصادر المعلومات:
 ${sources}
@@ -177,11 +182,28 @@ ${active.length ? active.map((c) => `- ${c.id} ${c.label}`).join("\n") : "- لا
 ${excluded.length ? excluded.map((t) => `- ${t}`).join("\n") : "- لا يوجد"}
 
 هذه المهمة جزء من مراجعة مقسّمة إلى أجزاء متوازية. أخرج فقط المفاتيح المطلوبة في المخطط: ${keys.join(", ")}
-${contextBlock(keys, context)}
-${docsText}`;
+${contextBlock(keys, context)}`;
 }
 
 const MAX_DIGEST_CHARS = 30000;
+
+const NEEDS_PREVIOUS_PLAN: ModelKey[] = ["vertical_alignment", "plaafp_assessment", "criteria_results"];
+const NEEDS_ASSESSMENTS: ModelKey[] = ["ttap_profile", "criteria_results", "plaafp_assessment", "assessment_alignment", "needs_coverage", "transition_coverage", "transition_minimum", "functional_contexts"];
+
+/**
+ * المستندات التي يحتاجها هذا الجزء فقط — الخطة الحالية دائماً وأولاً، والخطة السابقة
+ * ومصادر التقييم للأجزاء التي تستخدمها. يخفض التكلفة دون حذف ما يلزم الحكم.
+ */
+export function docsForKeys(docs: SupportingDoc[], keys: ModelKey[]): SupportingDoc[] {
+  const wantPrev = keys.some((k) => NEEDS_PREVIOUS_PLAN.includes(k));
+  const wantAssess = keys.some((k) => NEEDS_ASSESSMENTS.includes(k));
+  const current = docs.filter((d) => d.source === "current_plan");
+  const prev = wantPrev ? docs.filter((d) => d.source === "previous_plan") : [];
+  const others = wantAssess ? docs.filter((d) => d.source !== "current_plan" && d.source !== "previous_plan") : [];
+  return [...current, ...prev, ...others];
+}
+
+const LIGHT_KEYS: ModelKey[] = ["student_info", "plan_inventory", "ttap_profile"];
 
 /** يضيف الحصر المعتمد (M-6) لكل جزء تحليلي، وخلاصة الأجزاء (M-7) لجزء القرار */
 export function contextBlock(keys: ModelKey[], context: PartContext = {}): string {
@@ -212,16 +234,22 @@ export function contextBlock(keys: ModelKey[], context: PartContext = {}): strin
 }
 
 export async function runIepAudit(config: ReviewConfig, docs: SupportingDoc[], keys: ModelKey[], context: PartContext = {}): Promise<Partial<ModelOutput>> {
-  const { provider, model } = createIepAiProvider();
+  const { provider, model, lightModel } = createIepAiProvider();
+  // مهام النقل والحصر لا تحتاج تحليلاً — نموذج أخف إن ضُبط
+  const isLight = keys.every((k) => LIGHT_KEYS.includes(k));
+  const chosen = isLight && lightModel ? lightModel : model;
+  const current = docs.find((d) => d.source === "current_plan")?.text ?? "";
+  const cacheKey = "iep-" + createHash("sha256").update(current).digest("hex").slice(0, 24);
 
   const result = streamText({
-    model: provider.responses(model),
+    model: provider.responses(chosen),
     system: IEP_SYSTEM_PROMPT,
     prompt: buildUserPrompt(config, docs, keys, context),
     output: Output.object({ schema: jsonSchema<Partial<ModelOutput>>(buildScopedJsonSchema(config.review_type, keys)) }),
     providerOptions: {
       openai: {
         store: false,
+        promptCacheKey: cacheKey,
         forceReasoning: true,
         // "low" keeps long plans under the ~3-minute request ceiling
         reasoningEffort: "low",
@@ -233,6 +261,13 @@ export async function runIepAudit(config: ReviewConfig, docs: SupportingDoc[], k
 
   const parsed = await result.output;
   if (!parsed) throw new Error("لم يُنتج المحرك مخرجات. أعد المحاولة.");
+  // قياس الاستهلاك لكل جزء في سجلات التشغيل (بلا أي نص من الخطة)
+  try {
+    const usage = await result.usage;
+    console.log("[audit-usage]", JSON.stringify({ keys, model: chosen, docs: docsForKeys(docs, keys).map((d) => d.source), usage }));
+  } catch {
+    /* القياس اختياري */
+  }
   const mask = Object.fromEntries(keys.map((k) => [k, true])) as { [K in ModelKey]?: true };
   return modelOutputZ.pick(mask).parse(parsed) as Partial<ModelOutput>;
 }

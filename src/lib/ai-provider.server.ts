@@ -21,6 +21,7 @@ export function createIepAiProvider() {
         fetch: runIdFetch.fetch,
       }),
       model: "openai/gpt-6-astra",
+      lightModel: process.env["IEP_LIGHT_MODEL"] || undefined,
     };
   }
   if (mode === "openai") {
@@ -28,7 +29,9 @@ export function createIepAiProvider() {
     const model = process.env["IEP_OPENAI_MODEL"];
     if (!apiKey) throw new Error("OPENAI_API_KEY is required for direct provider.");
     if (!model) throw new Error("IEP_OPENAI_MODEL must be verified and explicitly configured.");
-    return { provider: createOpenAI({ apiKey }), model };
+    // نموذج أخف اختياري لمهام الحصر والنقل؛ يُضبط صراحةً من المالك بعد التحقق منه
+    const lightModel = process.env["IEP_OPENAI_LIGHT_MODEL"] || undefined;
+    return { provider: createOpenAI({ apiKey }), model, lightModel };
   }
   throw new Error("Unsupported IEP_AI_PROVIDER; expected lovable or openai.");
 }

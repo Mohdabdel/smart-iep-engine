@@ -527,8 +527,18 @@ function Home() {
         {cloudWarning && (
           <div className="mb-4 rounded-xl border border-border bg-muted/50 p-3 text-center text-xs text-muted-foreground print:hidden">{cloudWarning}</div>
         )}
-        {parts.length > 0 && (stage === "auditing" || parts.some((p) => p.status !== "completed")) && (
-          <PartsPanel parts={parts} busy={busy} onResume={() => void resume()} onRetry={(k) => void resume([k])} />
+        {parts.length > 0 && (
+          <PartsPanel
+            parts={parts}
+            busy={busy}
+            collapsed={stage !== "auditing" && parts.every((p) => p.status === "completed")}
+            onResume={() => void resume()}
+            onRetry={(k) => {
+              // إعادة جزء تحليلي تعيد معه جزء القرار حتى يبقى القرار مبنياً على النتائج الجديدة
+              const synth = parts.find((p) => p.keys.includes("review_decision"))?.key;
+              void resume(synth && synth !== k ? [k, synth] : [k]);
+            }}
+          />
         )}
         {!result && stage === "idle" && parts.length > 0 && error && (
           <div className="mb-4 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
@@ -894,12 +904,14 @@ function AuditReportView({ report, fileInfo, reportSections }: { report: IepAudi
   );
 }
 
-function PartsPanel({ parts, busy, onResume, onRetry }: { parts: PartState[]; busy: boolean; onResume: () => void; onRetry: (key: string) => void }) {
+function PartsPanel({ parts, busy, collapsed, onResume, onRetry }: { parts: PartState[]; busy: boolean; collapsed: boolean; onResume: () => void; onRetry: (key: string) => void }) {
   const done = parts.filter((p) => p.status === "completed").length;
   const incomplete = parts.some((p) => p.status === "failed" || p.status === "pending");
   return (
-    <section className="mx-auto mb-6 max-w-4xl space-y-3 rounded-2xl border border-border bg-card p-5 print:hidden">
-      <h3 className="font-semibold">أجزاء المراجعة</h3>
+    <details open={!collapsed} className="mx-auto mb-6 max-w-4xl space-y-3 rounded-2xl border border-border bg-card p-5 print:hidden">
+      <summary className="cursor-pointer font-semibold">
+        أجزاء المراجعة{collapsed ? " — إعادة تشغيل جزء محدد دون إعادة المراجعة كاملة" : ""}
+      </summary>
       <ul className="space-y-2">
         {parts.map((p) => (
           <li key={p.key} className="flex flex-wrap items-center gap-2 text-sm">
@@ -915,9 +927,9 @@ function PartsPanel({ parts, busy, onResume, onRetry }: { parts: PartState[]; bu
             <span className="font-medium">{p.label}</span>
             <span className="text-xs text-muted-foreground">— {PART_STATUS_LABELS[p.status]}{p.attempts > 1 ? ` (محاولات: ${p.attempts})` : ""}</span>
             {p.status === "failed" && p.error && <span className="text-xs text-destructive">{p.error}</span>}
-            {p.status === "failed" && !busy && (
+            {(p.status === "failed" || (p.status === "completed" && collapsed)) && !busy && (
               <button onClick={() => onRetry(p.key)} className="mr-auto inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs hover:bg-muted">
-                <RotateCw className="h-3 w-3" /> إعادة هذا الجزء
+                <RotateCw className="h-3 w-3" /> {p.status === "failed" ? "إعادة هذا الجزء" : "إعادة تشغيل هذا الجزء"}
               </button>
             )}
           </li>
@@ -933,6 +945,6 @@ function PartsPanel({ parts, busy, onResume, onRetry }: { parts: PartState[]; bu
           </button>
         </div>
       )}
-    </section>
+    </details>
   );
 }
