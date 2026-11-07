@@ -128,7 +128,7 @@ export const HIMAM_SYNTHETIC_AUDIT_REPORT = {
         progress_in_plaafp: "Completed in the school context.",
         assessment_evidence: "Synthetic accepted performance evidence.",
         current_refs: ["G1"],
-        category: "maintain_or_generalize",
+        category: "امتداد سليم",
         isolated_mastery: false,
         recommendation: "Generalize the performance to a community context.",
       },
