@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 
 const HOST = "127.0.0.1";
@@ -36,9 +37,11 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-async function post(baseUrl, body, token = TOKEN) {
+async function post(baseUrl, body, options = {}) {
   const headers = { "content-type": "application/json" };
-  if (token !== undefined) headers.authorization = `Bearer ${token}`;
+  if (!options.omitAuth) {
+    headers.authorization = `Bearer ${options.token ?? TOKEN}`;
+  }
   const response = await fetch(`${baseUrl}/api/himam/review`, {
     method: "POST",
     headers,
@@ -61,15 +64,50 @@ async function waitForServer(baseUrl) {
   throw new Error(`Local server did not become ready at ${baseUrl}`);
 }
 
+async function assertPortAvailable(port) {
+  await new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", (error) => {
+      reject(new Error(`Port ${port} is already in use: ${error.message}`));
+    });
+    probe.listen(port, HOST, () => {
+      probe.close((error) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
+  });
+}
+
+function stopProcessTree(child) {
+  if (!child.pid) return;
+
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+      stdio: "ignore",
+    });
+    return;
+  }
+
+  try {
+    process.kill(-child.pid, "SIGTERM");
+  } catch {
+    child.kill("SIGTERM");
+  }
+}
+
 async function withLocalServer(port, env, run) {
+  await assertPortAvailable(port);
+
   const baseUrl = `http://${HOST}:${port}`;
   const child = spawn(
-    process.platform === "win32" ? "npm.cmd" : "npm",
-    ["run", "dev", "--", "--host", HOST, "--port", String(port)],
+    process.platform === "win32" ? "npx.cmd" : "npx",
+    ["vite", "dev", "--host", HOST, "--port", String(port)],
     {
       cwd: process.cwd(),
       env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     },
   );
 
@@ -82,15 +120,14 @@ async function withLocalServer(port, env, run) {
     await waitForServer(baseUrl);
     await run(baseUrl);
   } finally {
-    child.kill("SIGTERM");
+    stopProcessTree(child);
     await Promise.race([
       new Promise((resolve) => child.once("exit", resolve)),
       delay(2_000),
     ]);
-    if (!child.killed) child.kill("SIGKILL");
   }
 
-  if (child.exitCode && child.exitCode !== 0 && !child.killed) {
+  if (child.exitCode && child.exitCode !== 0) {
     throw new Error(`Local server exited with code ${child.exitCode}: ${stderr}`);
   }
 }
@@ -139,13 +176,13 @@ await withLocalServer(
   },
   async (baseUrl) => {
     {
-      const { response, json } = await post(baseUrl, envelope(), undefined);
+      const { response, json } = await post(baseUrl, envelope(), { omitAuth: true });
       assert(response.status === 401, "missing key: expected 401");
       assert(json?.error === "HIMAM_INTEGRATION_UNAUTHORIZED", "missing key: wrong error");
     }
 
     {
-      const { response, json } = await post(baseUrl, envelope(), "wrong-token");
+      const { response, json } = await post(baseUrl, envelope(), { token: "wrong-token" });
       assert(response.status === 401, "wrong key: expected 401");
       assert(json?.error === "HIMAM_INTEGRATION_UNAUTHORIZED", "wrong key: wrong error");
     }
