@@ -28,10 +28,12 @@ const SNAPSHOT: ReviewProfileSnapshot = {
 
 function request(
   body: unknown,
-  token: string | undefined = TOKEN,
+  options: { token?: string; omitAuth?: boolean } = {},
 ): Request {
   const headers = new Headers({ "content-type": "application/json" });
-  if (token !== undefined) headers.set("authorization", `Bearer ${token}`);
+  if (!options.omitAuth) {
+    headers.set("authorization", `Bearer ${options.token ?? TOKEN}`);
+  }
   return new Request("http://localhost/api/himam/review", {
     method: "POST",
     headers,
@@ -71,7 +73,7 @@ describe("Himam local synthetic HTTP guards", () => {
 
   it("rejects a missing integration key", async () => {
     const response = await handleHimamSyntheticReviewRequest(
-      request(envelope(), undefined),
+      request(envelope(), { omitAuth: true }),
       ENABLED_ENV,
     );
     expect(response.status).toBe(401);
@@ -80,7 +82,7 @@ describe("Himam local synthetic HTTP guards", () => {
 
   it("rejects an incorrect integration key", async () => {
     const response = await handleHimamSyntheticReviewRequest(
-      request(envelope(), "wrong-token"),
+      request(envelope(), { token: "wrong-token" }),
       ENABLED_ENV,
     );
     expect(response.status).toBe(401);
