@@ -12,9 +12,7 @@ export type HimamIntegrationGuardFailure = {
   code: string;
 };
 
-export type HimamIntegrationGuardResult =
-  | { ok: true }
-  | HimamIntegrationGuardFailure;
+export type HimamIntegrationGuardResult = { ok: true } | HimamIntegrationGuardFailure;
 
 export function checkHimamIntegrationEnvironment(
   env: HimamSyntheticIntegrationEnv,
@@ -45,6 +43,10 @@ export function authenticateHimamIntegrationRequest(
 
   const suppliedToken = authorization.slice("Bearer ".length);
   const expectedToken = env.HIMAM_SYNTHETIC_INTEGRATION_TOKEN;
+  if (!expectedToken) {
+    return { ok: false, status: 503, code: "HIMAM_INTEGRATION_TOKEN_NOT_CONFIGURED" };
+  }
+
   const supplied = Buffer.from(suppliedToken);
   const expected = Buffer.from(expectedToken);
   if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
