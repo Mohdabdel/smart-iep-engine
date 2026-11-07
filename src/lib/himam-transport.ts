@@ -1,7 +1,4 @@
-import type {
-  ReviewIntegrationPackage,
-  ReviewProfileSnapshot,
-} from "./himam-integration-contract";
+import type { ReviewIntegrationPackage, ReviewProfileSnapshot } from "./himam-integration-contract";
 import { buildReadonlyProfileReviewContext } from "./himam-profile-context";
 
 export const SMART_IEP_HIMAM_TRANSPORT_FEATURE = {

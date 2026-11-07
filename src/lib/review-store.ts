@@ -9,13 +9,7 @@ import type {
 } from "./himam-integration-contract";
 
 export const REVIEW_SPEC_VERSION = "supervisory-v5";
-export type CaseStatus =
-  | "draft"
-  | "running"
-  | "partial"
-  | "completed"
-  | "approved"
-  | "failed";
+export type CaseStatus = "draft" | "running" | "partial" | "completed" | "approved" | "failed";
 export type PartStatus = "pending" | "running" | "completed" | "failed";
 
 export const CASE_STATUS_LABELS: Record<CaseStatus, string> = {

@@ -33,9 +33,9 @@ describe("Himam review integration", () => {
     expect(pkg.learningCandidates).toEqual([]);
     expect(SMART_IEP_HIMAM_INTEGRATION_GOVERNANCE.automaticPushEnabled).toBe(false);
     expect(SMART_IEP_HIMAM_INTEGRATION_GOVERNANCE.directProfileWriteAllowed).toBe(false);
-    expect(
-      SMART_IEP_HIMAM_INTEGRATION_GOVERNANCE.humanApprovalRequiredBeforeProfileImpact,
-    ).toBe(true);
+    expect(SMART_IEP_HIMAM_INTEGRATION_GOVERNANCE.humanApprovalRequiredBeforeProfileImpact).toBe(
+      true,
+    );
   });
 
   it("accepts a purpose-limited read-only profile snapshot without mutation rights", () => {
