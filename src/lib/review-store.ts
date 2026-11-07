@@ -2,6 +2,8 @@ import { authHeaders } from "@/lib/auth-header";
 /** طبقة الحفظ الدائم للمراجعات (أرشيف + أجزاء قابلة للاستكمال) — تُستدعى من المتصفح عبر /api/reviews */
 import type { ReviewConfig } from "./criteria-registry";
 import type { IepAuditReport } from "./iep-schema";
+import { buildReviewIntegrationPackage } from "./himam-review-adapter";
+import type { ReviewIntegrationPackage, ReviewProfileComparisonFinding } from "./himam-integration-contract";
 
 export const REVIEW_SPEC_VERSION = "supervisory-v5";
 export type CaseStatus = "draft" | "running" | "partial" | "completed" | "approved" | "failed";
@@ -87,6 +89,31 @@ export const saveEditedReport = (id: string, report: IepAuditReport) =>
 export const listReviewCases = () => call<{ cases: CaseSummary[] }>("list").then((r) => r.cases);
 export const loadReviewCase = (id: string) => call<{ case: StoredCase; parts: StoredPart[] }>("load", { id });
 export const deleteReviewCase = (id: string) => call("delete", { id });
+
+/**
+ * Builds a Himam-compatible integration package from a stored review case.
+ * This only returns data to the caller. It does not push, sync, or write to
+ * himam-plan-pro.
+ */
+export async function exportReviewIntegrationPackage(input: {
+  reviewCaseId: string;
+  learnerRef?: string;
+  profileSnapshotVersionUsed?: string;
+  profileComparisonFindings?: ReviewProfileComparisonFinding[];
+}): Promise<ReviewIntegrationPackage> {
+  const stored = await loadReviewCase(input.reviewCaseId);
+  if (!stored.case.report_json) {
+    throw new Error("لا يمكن تصدير حزمة تكامل قبل اكتمال تقرير المراجعة.");
+  }
+  return buildReviewIntegrationPackage({
+    reviewCaseId: stored.case.id,
+    sourcePlanRef: stored.case.source_file_name,
+    report: stored.case.report_json,
+    learnerRef: input.learnerRef,
+    profileSnapshotVersionUsed: input.profileSnapshotVersionUsed,
+    profileComparisonFindings: input.profileComparisonFindings,
+  });
+}
 
 /** نصوص المستندات تُحفظ محلياً فقط لاستكمال مراجعة غير مكتملة (لا تُرسل إلى الأرشيف) */
 const docsKey = (id: string) => `iep-audit:docs:${id}`;
