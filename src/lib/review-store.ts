@@ -3,10 +3,19 @@ import { authHeaders } from "@/lib/auth-header";
 import type { ReviewConfig } from "./criteria-registry";
 import type { IepAuditReport } from "./iep-schema";
 import { buildReviewIntegrationPackage } from "./himam-review-adapter";
-import type { ReviewIntegrationPackage, ReviewProfileComparisonFinding } from "./himam-integration-contract";
+import type {
+  ReviewIntegrationPackage,
+  ReviewProfileComparisonFinding,
+} from "./himam-integration-contract";
 
 export const REVIEW_SPEC_VERSION = "supervisory-v5";
-export type CaseStatus = "draft" | "running" | "partial" | "completed" | "approved" | "failed";
+export type CaseStatus =
+  | "draft"
+  | "running"
+  | "partial"
+  | "completed"
+  | "approved"
+  | "failed";
 export type PartStatus = "pending" | "running" | "completed" | "failed";
 
 export const CASE_STATUS_LABELS: Record<CaseStatus, string> = {
@@ -57,7 +66,13 @@ export type CaseSummary = {
   created_at: string;
   updated_at: string;
 };
-export type StoredPart = { part_key: string; status: PartStatus; result_json: unknown; error_message: string | null; attempts: number };
+export type StoredPart = {
+  part_key: string;
+  status: PartStatus;
+  result_json: unknown;
+  error_message: string | null;
+  attempts: number;
+};
 export type StoredCase = CaseSummary & {
   review_config: ReviewConfig;
   report_sections: Record<string, boolean>;
@@ -73,21 +88,45 @@ export const createReviewCase = (p: {
   review_config: ReviewConfig;
   report_sections: Record<string, boolean>;
   part_keys: string[];
-}) => call<{ id: string }>("create", { ...p, review_spec_version: REVIEW_SPEC_VERSION, report_schema_version: 4 }).then((r) => r.id);
+}) =>
+  call<{ id: string }>("create", {
+    ...p,
+    review_spec_version: REVIEW_SPEC_VERSION,
+    report_schema_version: 4,
+  }).then((r) => r.id);
 
-export const saveReviewPart = (id: string, part_key: string, status: PartStatus, extra: { result_json?: unknown; error_message?: string; increment_attempts?: boolean } = {}) =>
-  call("update_part", { id, part_key, status, ...extra });
+export const saveReviewPart = (
+  id: string,
+  part_key: string,
+  status: PartStatus,
+  extra: {
+    result_json?: unknown;
+    error_message?: string;
+    increment_attempts?: boolean;
+  } = {},
+) => call("update_part", { id, part_key, status, ...extra });
 
 export const updateReviewCase = (
   id: string,
-  patch: { status?: CaseStatus; report_json?: unknown; review_decision?: string | null; learner_name?: string | null; report_sections?: Record<string, boolean> },
+  patch: {
+    status?: CaseStatus;
+    report_json?: unknown;
+    review_decision?: string | null;
+    learner_name?: string | null;
+    report_sections?: Record<string, boolean>;
+  },
 ) => call("update_case", { id, ...patch });
 
 export const saveEditedReport = (id: string, report: IepAuditReport) =>
-  updateReviewCase(id, { report_json: report, review_decision: report.review_decision, learner_name: report.student_info.student_name || null });
+  updateReviewCase(id, {
+    report_json: report,
+    review_decision: report.review_decision,
+    learner_name: report.student_info.student_name || null,
+  });
 
 export const listReviewCases = () => call<{ cases: CaseSummary[] }>("list").then((r) => r.cases);
-export const loadReviewCase = (id: string) => call<{ case: StoredCase; parts: StoredPart[] }>("load", { id });
+export const loadReviewCase = (id: string) =>
+  call<{ case: StoredCase; parts: StoredPart[] }>("load", { id });
 export const deleteReviewCase = (id: string) => call("delete", { id });
 
 /**
