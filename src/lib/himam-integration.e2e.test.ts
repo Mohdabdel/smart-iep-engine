@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { emptyModelOutput, type IepAuditReport } from "./iep-schema";
 import { buildReviewIntegrationPackage } from "./himam-review-adapter";
 import { buildReadonlyProfileReviewContext } from "./himam-profile-context";
+import { createReviewPackageEnvelope, receiveProfileSnapshotEnvelope, SMART_IEP_HIMAM_TRANSPORT_FEATURE, SMART_IEP_HIMAM_TRANSPORT_GOVERNANCE } from "./himam-transport";
 import {
   HIMAM_REVIEW_INTEGRATION_PROTOCOL,
   type ReviewProfileSnapshot,
@@ -42,7 +43,17 @@ describe("smart-iep-engine Himam synthetic bridge", () => {
       acceptedSupportSummaries: [],
     };
 
-    const context = buildReadonlyProfileReviewContext(snapshot);
+    const directContext = buildReadonlyProfileReviewContext(snapshot);
+    expect(directContext.governance.mayCompareAgainstPlan).toBe(true);
+
+    const profileEnvelope = {
+      protocolVersion: SMART_IEP_HIMAM_TRANSPORT_FEATURE.protocolVersion,
+      transportId: "profile-envelope-1",
+      createdAt: "2026-11-07T00:00:00.000Z",
+      synthetic: true,
+      payload: snapshot,
+    };
+    const context = receiveProfileSnapshotEnvelope(profileEnvelope);
     expect(context.governance.mayCompareAgainstPlan).toBe(true);
     expect(context.governance.mayMutateProfile).toBe(false);
 
@@ -95,5 +106,12 @@ describe("smart-iep-engine Himam synthetic bridge", () => {
     expect(pkg.profileComparisonFindings).toHaveLength(1);
     expect(pkg.learningCandidates.length).toBeGreaterThan(0);
     expect(pkg.learningCandidates[0].requiresHumanApproval).toBe(true);
+
+    const reviewEnvelope = createReviewPackageEnvelope(pkg, "review-envelope-1");
+    expect(reviewEnvelope.synthetic).toBe(true);
+    expect(reviewEnvelope.protocolVersion).toBe(HIMAM_REVIEW_INTEGRATION_PROTOCOL);
+    expect(SMART_IEP_HIMAM_TRANSPORT_FEATURE.enabled).toBe(false);
+    expect(SMART_IEP_HIMAM_TRANSPORT_GOVERNANCE.realDataAllowed).toBe(false);
+    expect(SMART_IEP_HIMAM_TRANSPORT_GOVERNANCE.endpointBindingAllowedNow).toBe(false);
   });
 });
