@@ -25,23 +25,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function parseSyntheticEnvelope(value: unknown): SyntheticEnvelope | null {
   if (!isRecord(value)) return null;
-  if (typeof value.protocolVersion !== "string") return null;
-  if (typeof value.transportId !== "string" || !value.transportId) return null;
-  if (typeof value.createdAt !== "string" || !value.createdAt) return null;
-  if (typeof value.synthetic !== "boolean") return null;
-  if (!isRecord(value.payload)) return null;
+  if (typeof value["protocolVersion"] !== "string") return null;
+  if (typeof value["transportId"] !== "string" || !value["transportId"]) return null;
+  if (typeof value["createdAt"] !== "string" || !value["createdAt"]) return null;
+  if (typeof value["synthetic"] !== "boolean") return null;
+  if (!isRecord(value["payload"])) return null;
 
-  const payload = value.payload;
-  if (typeof payload.protocolVersion !== "string") return null;
-  if (typeof payload.learnerRef !== "string") return null;
-  if (typeof payload.profileVersion !== "string") return null;
-  if (typeof payload.generatedAt !== "string") return null;
-  if (payload.purpose !== "PLAN_REVIEW") return null;
-  if (payload.readonly !== true) return null;
-  if (!Array.isArray(payload.acceptedEvidenceSummaries)) return null;
-  if (!Array.isArray(payload.acceptedPlanningPriorities)) return null;
-  if (!Array.isArray(payload.goalHistory)) return null;
-  if (!Array.isArray(payload.acceptedSupportSummaries)) return null;
+  const payload = value["payload"];
+  if (typeof payload["protocolVersion"] !== "string") return null;
+  if (typeof payload["learnerRef"] !== "string") return null;
+  if (typeof payload["profileVersion"] !== "string") return null;
+  if (typeof payload["generatedAt"] !== "string") return null;
+  if (payload["purpose"] !== "PLAN_REVIEW") return null;
+  if (payload["readonly"] !== true) return null;
+  if (!Array.isArray(payload["acceptedEvidenceSummaries"])) return null;
+  if (!Array.isArray(payload["acceptedPlanningPriorities"])) return null;
+  if (!Array.isArray(payload["goalHistory"])) return null;
+  if (!Array.isArray(payload["acceptedSupportSummaries"])) return null;
 
   return value as unknown as SyntheticEnvelope;
 }
@@ -62,11 +62,11 @@ export async function handleHimamSyntheticReviewRequest(
   const raw = await request.json().catch(() => null);
   if (!isRecord(raw)) return jsonError(traceId, 400, "INVALID_JSON_BODY");
 
-  if (raw.protocolVersion !== HIMAM_REVIEW_INTEGRATION_PROTOCOL) {
+  if (raw["protocolVersion"] !== HIMAM_REVIEW_INTEGRATION_PROTOCOL) {
     return jsonError(traceId, 409, "PROTOCOL_VERSION_MISMATCH");
   }
 
-  if (raw.synthetic !== true) {
+  if (raw["synthetic"] !== true) {
     return jsonError(traceId, 403, "REAL_DATA_TRANSPORT_BLOCKED");
   }
 
@@ -85,7 +85,7 @@ export async function handleHimamSyntheticReviewRequest(
     );
   }
 
-  if (envelope.payload.protocolVersion !== HIMAM_REVIEW_INTEGRATION_PROTOCOL) {
+  if (envelope.payload["protocolVersion"] !== HIMAM_REVIEW_INTEGRATION_PROTOCOL) {
     return jsonError(traceId, 409, "PROTOCOL_VERSION_MISMATCH");
   }
 
@@ -93,8 +93,8 @@ export async function handleHimamSyntheticReviewRequest(
   const reviewPackage = buildReviewIntegrationPackage({
     reviewCaseId: "RC-HTTP-SYNTH-001",
     sourcePlanRef: "synthetic-http-fixture-plan.pdf",
-    learnerRef: envelope.payload.learnerRef,
-    profileSnapshotVersionUsed: envelope.payload.profileVersion,
+    learnerRef: envelope.payload["learnerRef"],
+    profileSnapshotVersionUsed: envelope.payload["profileVersion"],
     report: HIMAM_SYNTHETIC_AUDIT_REPORT,
     generatedAt,
   });
