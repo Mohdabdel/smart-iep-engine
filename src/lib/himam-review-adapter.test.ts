@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { emptyModelOutput, type IepAuditReport } from "./iep-schema";
 import { buildReviewIntegrationPackage } from "./himam-review-adapter";
 import { HIMAM_REVIEW_INTEGRATION_PROTOCOL, SMART_IEP_HIMAM_INTEGRATION_GOVERNANCE } from "./himam-integration-contract";
+import { buildReadonlyProfileReviewContext } from "./himam-profile-context";
 
 describe("Himam review integration", () => {
   it("exports a versioned package without enabling direct profile write-back", () => {
@@ -30,5 +31,25 @@ describe("Himam review integration", () => {
     expect(SMART_IEP_HIMAM_INTEGRATION_GOVERNANCE.automaticPushEnabled).toBe(false);
     expect(SMART_IEP_HIMAM_INTEGRATION_GOVERNANCE.directProfileWriteAllowed).toBe(false);
     expect(SMART_IEP_HIMAM_INTEGRATION_GOVERNANCE.humanApprovalRequiredBeforeProfileImpact).toBe(true);
+  });
+
+  it("accepts a purpose-limited read-only profile snapshot without mutation rights", () => {
+    const context = buildReadonlyProfileReviewContext({
+      protocolVersion: HIMAM_REVIEW_INTEGRATION_PROTOCOL,
+      learnerRef: "learner-test",
+      profileVersion: "profile-v1",
+      generatedAt: "2026-11-07T00:00:00.000Z",
+      purpose: "PLAN_REVIEW",
+      readonly: true,
+      acceptedEvidenceSummaries: [],
+      acceptedPlanningPriorities: [],
+      goalHistory: [],
+      acceptedSupportSummaries: [],
+    });
+
+    expect(context.governance.readonly).toBe(true);
+    expect(context.governance.mayCompareAgainstPlan).toBe(true);
+    expect(context.governance.mayMutateProfile).toBe(false);
+    expect(context.governance.mayTreatMissingProfileDataAsLearnerDeficit).toBe(false);
   });
 });
