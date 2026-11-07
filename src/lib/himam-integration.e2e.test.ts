@@ -74,7 +74,7 @@ describe("smart-iep-engine Himam synthetic bridge", () => {
         isolated_mastery: false,
         recommendation: "الانتقال إلى تعميم الأداء في سياق مجتمعي.",
       },
-    ] as any;
+    ] as unknown as IepAuditReport["goal_journey"]["items"];
 
     const report = {
       ...base,
