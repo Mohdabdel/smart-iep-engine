@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 export type HimamSyntheticIntegrationEnv = {
   HIMAM_SYNTHETIC_INTEGRATION_ENABLED?: string;
   HIMAM_INTEGRATION_ENV?: string;
@@ -42,7 +44,10 @@ export function authenticateHimamIntegrationRequest(
   }
 
   const suppliedToken = authorization.slice("Bearer ".length);
-  if (suppliedToken !== env.HIMAM_SYNTHETIC_INTEGRATION_TOKEN) {
+  const expectedToken = env.HIMAM_SYNTHETIC_INTEGRATION_TOKEN;
+  const supplied = Buffer.from(suppliedToken);
+  const expected = Buffer.from(expectedToken);
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
     return { ok: false, status: 401, code: "HIMAM_INTEGRATION_UNAUTHORIZED" };
   }
 
