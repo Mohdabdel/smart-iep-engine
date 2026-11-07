@@ -37,9 +37,9 @@ function planFindingsFromReport(report: IepAuditReport): ReviewPlanFinding[] {
       category: categoryOf(finding.criterion_id, finding.recommended_action),
       severity: severityOf(finding.severity),
       summary: finding.reasoning_summary || finding.recommended_action || finding.criterion_id,
-      evidenceText: finding.evidence_text || undefined,
+      ...(finding.evidence_text ? { evidenceText: finding.evidence_text } : {}),
       planRefs: [finding.criterion_id],
-      recommendedAction: finding.recommended_action || undefined,
+      ...(finding.recommended_action ? { recommendedAction: finding.recommended_action } : {}),
       destination: "PLAN_ONLY",
     }));
 
@@ -50,9 +50,9 @@ function planFindingsFromReport(report: IepAuditReport): ReviewPlanFinding[] {
       category: "GOAL_QUALITY",
       severity: severityOf(revision.priority),
       summary: revision.rationale || revision.defect_type,
-      evidenceText: revision.original_goal || undefined,
+      ...(revision.original_goal ? { evidenceText: revision.original_goal } : {}),
       planRefs: [revision.goal_number].filter(Boolean),
-      recommendedAction: revision.revised_goal || undefined,
+      ...(revision.revised_goal ? { recommendedAction: revision.revised_goal } : {}),
       destination: "PLAN_ONLY",
     }));
 
@@ -148,10 +148,12 @@ export function buildReviewIntegrationPackage(input: {
     reviewEngine: "smart-iep-engine",
     reviewEngineVersion: "supervisory-v5",
     reviewCaseId: input.reviewCaseId,
-    learnerRef: input.learnerRef,
+    ...(input.learnerRef ? { learnerRef: input.learnerRef } : {}),
     sourcePlanRef: input.sourcePlanRef,
     generatedAt: input.generatedAt ?? new Date().toISOString(),
-    profileSnapshotVersionUsed: input.profileSnapshotVersionUsed,
+    ...(input.profileSnapshotVersionUsed
+      ? { profileSnapshotVersionUsed: input.profileSnapshotVersionUsed }
+      : {}),
     interactionModes: [
       "PLAN_QUALITY_GATE",
       ...(input.profileSnapshotVersionUsed ? ["PROFILE_PLAN_CONSISTENCY" as const] : []),
