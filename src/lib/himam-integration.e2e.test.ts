@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { emptyModelOutput, type IepAuditReport } from "./iep-schema";
 import { buildReviewIntegrationPackage } from "./himam-review-adapter";
 import { buildReadonlyProfileReviewContext } from "./himam-profile-context";
-import { createReviewPackageEnvelope, receiveProfileSnapshotEnvelope, SMART_IEP_HIMAM_TRANSPORT_FEATURE, SMART_IEP_HIMAM_TRANSPORT_GOVERNANCE } from "./himam-transport";
+import {
+  createReviewPackageEnvelope,
+  receiveProfileSnapshotEnvelope,
+  SMART_IEP_HIMAM_TRANSPORT_FEATURE,
+  SMART_IEP_HIMAM_TRANSPORT_GOVERNANCE,
+} from "./himam-transport";
 import {
   HIMAM_REVIEW_INTEGRATION_PROTOCOL,
   type ReviewProfileSnapshot,
