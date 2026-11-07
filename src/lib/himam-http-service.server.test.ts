@@ -26,10 +26,7 @@ const SNAPSHOT: ReviewProfileSnapshot = {
   acceptedSupportSummaries: [],
 };
 
-function request(
-  body: unknown,
-  options: { token?: string; omitAuth?: boolean } = {},
-): Request {
+function request(body: unknown, options: { token?: string; omitAuth?: boolean } = {}): Request {
   const headers = new Headers({ "content-type": "application/json" });
   if (!options.omitAuth) {
     headers.set("authorization", `Bearer ${options.token ?? TOKEN}`);
