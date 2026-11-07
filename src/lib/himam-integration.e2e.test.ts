@@ -105,7 +105,7 @@ describe("smart-iep-engine Himam synthetic bridge", () => {
     expect(pkg.interactionModes).toContain("PROFILE_PLAN_CONSISTENCY");
     expect(pkg.profileComparisonFindings).toHaveLength(1);
     expect(pkg.learningCandidates.length).toBeGreaterThan(0);
-    expect(pkg.learningCandidates[0].requiresHumanApproval).toBe(true);
+    expect(pkg.learningCandidates[0]?.requiresHumanApproval).toBe(true);
 
     const reviewEnvelope = createReviewPackageEnvelope(pkg, "review-envelope-1");
     expect(reviewEnvelope.synthetic).toBe(true);
