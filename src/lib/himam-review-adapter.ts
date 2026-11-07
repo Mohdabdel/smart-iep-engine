@@ -13,7 +13,10 @@ function severityOf(value: string): ReviewPlanFinding["severity"] {
   return "QUALITY_IMPROVEMENT";
 }
 
-function categoryOf(criterionId: string, recommendedAction: string): ReviewPlanFinding["category"] {
+function categoryOf(
+  criterionId: string,
+  recommendedAction: string,
+): ReviewPlanFinding["category"] {
   const text = `${criterionId} ${recommendedAction}`.toLowerCase();
   if (text.includes("baseline")) return "BASELINE";
   if (text.includes("measure") || text.includes("قياس")) return "MEASUREMENT";
@@ -31,7 +34,10 @@ function acceptedReviewerStatus(status: string) {
 
 function planFindingsFromReport(report: IepAuditReport): ReviewPlanFinding[] {
   const criteria = report.criteria_results
-    .filter((finding) => finding.status !== "مستوفى" && acceptedReviewerStatus(finding.reviewer_status))
+    .filter(
+      (finding) =>
+        finding.status !== "مستوفى" && acceptedReviewerStatus(finding.reviewer_status),
+    )
     .map((finding, index): ReviewPlanFinding => ({
       findingId: `criterion-${index + 1}-${finding.criterion_id}`,
       category: categoryOf(finding.criterion_id, finding.recommended_action),
@@ -39,7 +45,9 @@ function planFindingsFromReport(report: IepAuditReport): ReviewPlanFinding[] {
       summary: finding.reasoning_summary || finding.recommended_action || finding.criterion_id,
       ...(finding.evidence_text ? { evidenceText: finding.evidence_text } : {}),
       planRefs: [finding.criterion_id],
-      ...(finding.recommended_action ? { recommendedAction: finding.recommended_action } : {}),
+      ...(finding.recommended_action
+        ? { recommendedAction: finding.recommended_action }
+        : {}),
       destination: "PLAN_ONLY",
     }));
 
