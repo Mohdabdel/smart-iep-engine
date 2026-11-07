@@ -2,7 +2,10 @@ import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 
 const HOST = "127.0.0.1";
-const TOKEN = "synthetic-local-smoke-token";
+const TOKEN = process.env.HIMAM_SYNTHETIC_INTEGRATION_TOKEN;
+if (!TOKEN) {
+  throw new Error("HIMAM_SYNTHETIC_INTEGRATION_TOKEN must be set in the local environment.");
+}
 const PROTOCOL = "himam-review-integration-v1";
 
 const snapshot = {
