@@ -109,9 +109,13 @@ export async function exportReviewIntegrationPackage(input: {
     reviewCaseId: stored.case.id,
     sourcePlanRef: stored.case.source_file_name,
     report: stored.case.report_json,
-    learnerRef: input.learnerRef,
-    profileSnapshotVersionUsed: input.profileSnapshotVersionUsed,
-    profileComparisonFindings: input.profileComparisonFindings,
+    ...(input.learnerRef ? { learnerRef: input.learnerRef } : {}),
+    ...(input.profileSnapshotVersionUsed
+      ? { profileSnapshotVersionUsed: input.profileSnapshotVersionUsed }
+      : {}),
+    ...(input.profileComparisonFindings
+      ? { profileComparisonFindings: input.profileComparisonFindings }
+      : {}),
   });
 }
 
