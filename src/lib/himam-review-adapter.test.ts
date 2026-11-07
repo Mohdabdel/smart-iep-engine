@@ -10,17 +10,13 @@ import {
 } from "./himam-integration-contract";
 import { buildReadonlyProfileReviewContext } from "./himam-profile-context";
 
-const HIMAM_REVIEW_CONTRACT_V1_SHA256 = "397557c6c9deaa976e658f4db37b376200bf77c99c7e7e3518ef6ea7b48ab771";
+const HIMAM_REVIEW_CONTRACT_V1_SHA256 =
+  "397557c6c9deaa976e658f4db37b376200bf77c99c7e7e3518ef6ea7b48ab771";
 
 describe("Himam review integration", () => {
   it("matches the pinned shared review contract v1 SHA-256", () => {
-    const contractPath = resolve(
-      process.cwd(),
-      "src/lib/shared/himam-review-contract.v1.ts",
-    );
-    const actualSha256 = createHash("sha256")
-      .update(readFileSync(contractPath))
-      .digest("hex");
+    const contractPath = resolve(process.cwd(), "src/lib/shared/himam-review-contract.v1.ts");
+    const actualSha256 = createHash("sha256").update(readFileSync(contractPath)).digest("hex");
 
     expect(actualSha256).toBe(HIMAM_REVIEW_CONTRACT_V1_SHA256);
   });
