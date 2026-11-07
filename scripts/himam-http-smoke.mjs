@@ -5,9 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 const HOST = "127.0.0.1";
 const TOKEN = process.env.HIMAM_SYNTHETIC_INTEGRATION_TOKEN;
 if (!TOKEN) {
-  throw new Error(
-    "HIMAM_SYNTHETIC_INTEGRATION_TOKEN must be set in the local environment.",
-  );
+  throw new Error("HIMAM_SYNTHETIC_INTEGRATION_TOKEN must be set in the local environment.");
 }
 const PROTOCOL = "himam-review-integration-v1";
 
@@ -123,10 +121,7 @@ async function withLocalServer(port, env, run) {
     await run(baseUrl);
   } finally {
     stopProcessTree(child);
-    await Promise.race([
-      new Promise((resolve) => child.once("exit", resolve)),
-      delay(2_000),
-    ]);
+    await Promise.race([new Promise((resolve) => child.once("exit", resolve)), delay(2_000)]);
   }
 
   if (child.exitCode && child.exitCode !== 0) {
@@ -225,14 +220,12 @@ await withLocalServer(
     assert(second.response.status === 200, "repeat request: expected 200");
     assert(first.json?.traceId, "valid request: missing traceId");
     assert(second.json?.traceId, "repeat request: missing traceId");
-    assert(
-      first.json.traceId !== second.json.traceId,
-      "traceId must differ between requests",
-    );
+    assert(first.json.traceId !== second.json.traceId, "traceId must differ between requests");
     assert(first.json.package?.generatedAt, "valid request: missing package.generatedAt");
     assert(second.json.package?.generatedAt, "repeat request: missing package.generatedAt");
     assert(
-      JSON.stringify(normalizeSuccess(first.json)) === JSON.stringify(normalizeSuccess(second.json)),
+      JSON.stringify(normalizeSuccess(first.json)) ===
+        JSON.stringify(normalizeSuccess(second.json)),
       "package content changed across identical requests",
     );
   },
