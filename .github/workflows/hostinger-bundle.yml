@@ -47,6 +47,9 @@ jobs:
       - name: Install dependencies (frozen bun.lock)
         run: bun install --frozen-lockfile
       - name: Unit tests
+        # Tests must not run under the job-level NODE_ENV=production (vitest then fails to resolve node: built-ins).
+        env:
+          NODE_ENV: test
         run: bun run test
       - name: Gate tests
         run: node --test scripts/staging-gate.test.mjs
