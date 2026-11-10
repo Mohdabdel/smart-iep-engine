@@ -22,6 +22,10 @@ export const JOURNEY_PHRASES: Record<JourneyCategory, string> = {
 /** حد «النمط» في قراءة همم — تشغيلي قابل للمعايرة، غير مستمد من مصدر */
 export const HIMAM_PATTERN_THRESHOLD = 0.5;
 
+/** «أُتقن منفرداً» لا يصدق إلا على هدف تحقق (مُتقن، أو امتد إلى هدف أعلى)؛ هدف لم يتحقق أو تُرك لا يُعدّ متقناً منفرداً مهما أعاد النموذج */
+const ACHIEVED_CATEGORIES = new Set(["مُتقن", "امتداد سليم"]);
+export const isIsolatedMastery = (i: { category: string; isolated_mastery?: boolean }) => ACHIEVED_CATEGORIES.has(i.category) && i.isolated_mastery === true;
+
 const refsIn = (s: string) => (s.match(/هـ\s*\d+/g) ?? []).map((x) => x.replace(/\s+/g, ""));
 
 export function himamReading(report: IepAuditReport) {
@@ -29,7 +33,7 @@ export function himamReading(report: IepAuditReport) {
   const curGoals = report.goal_review?.goals ?? [];
   if (!items.length) return null;
   const incomplete = items.filter((i) => i.category === "تكرار بلا معالجة" || i.category === "متروك بلا تفسير").length;
-  const isolated = items.filter((i) => i.isolated_mastery).length;
+  const isolated = items.filter(isIsolatedMastery).length;
   const inCluster = new Set((report.whole_plan?.functional_clusters ?? []).flatMap((c) => c.goals.flatMap(refsIn)));
   const curRefs = curGoals.map((g) => (g.goal_number || "").replace(/\s+/g, "")).filter(Boolean);
   const scattered = curRefs.length && inCluster.size ? curRefs.filter((r) => !inCluster.has(r)).length : null;

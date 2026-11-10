@@ -13,7 +13,7 @@ import { arabicSectionRefs, goalReviewCounts, transitionStats } from "./iep-pari
 import { checkReportConsistency } from "./consistency-check";
 import { computeTtapPatterns, ttapTotals } from "./ttap-profile";
 import { assessmentAdequacy } from "./assessment-adequacy";
-import { JOURNEY_PHRASES, himamReading } from "./goal-journey";
+import { JOURNEY_PHRASES, himamReading, isIsolatedMastery } from "./goal-journey";
 import { POTENTIAL_CONTEXT_STATUS } from "./functional-context-registry";
 
 export const REPORT_SECTION_OPTIONS = [
@@ -261,7 +261,7 @@ export function buildReportBlocks(report: IepAuditReport, sections: ReportSectio
     table: gj?.items?.length
       ? {
           head: ["الهدف السابق", "التقدم في مستوى الأداء", "في التقييم", "الهدف الحالي", "مسار الهدف", "توصية لتحسين الخطة"],
-          rows: gj.items.map((i) => [`${i.ref} ${i.previous_goal}`, v(i.progress_in_plaafp), v(i.assessment_evidence), i.current_refs.join("، ") || "—", JOURNEY_PHRASES[i.category] + (i.isolated_mastery ? " — أُتقن منفرداً" : ""), v(i.recommendation)]),
+          rows: gj.items.map((i) => [`${i.ref} ${i.previous_goal}`, v(i.progress_in_plaafp), v(i.assessment_evidence), i.current_refs.join("، ") || "—", JOURNEY_PHRASES[i.category] + (isIsolatedMastery(i) ? " — أُتقن منفرداً" : ""), v(i.recommendation)]),
         }
       : undefined,
   });

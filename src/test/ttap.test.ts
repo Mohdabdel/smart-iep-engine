@@ -71,14 +71,14 @@ describe("TTAP area names as written by the model", () => {
     expect(resolveTtapArea("السلوك البينشخصي")).toBe("IB");
     expect(resolveTtapArea("VB")).toBe("VB");
   });
-  it("reads the real staging profile into six patterns", () => {
+  it("reads an Arabic-named synthetic profile into six patterns", () => {
     const real = { detected: true, areas: [
-      { area: "المهارات المهنية", do_pass: 8, do_emerge: 4, home_pass: 6, home_emerge: 4, school_pass: 7, school_emerge: 5 },
-      { area: "السلوكيات المهنية", do_pass: 12, do_emerge: 0, home_pass: 6, home_emerge: 6, school_pass: 10, school_emerge: 2 },
-      { area: "الأداء الوظيفي المستقل", do_pass: 7, do_emerge: 3, home_pass: 3, home_emerge: 6, school_pass: 9, school_emerge: 2 },
-      { area: "مهارات الترفيه", do_pass: 8, do_emerge: 2, home_pass: 4, home_emerge: 7, school_pass: 8, school_emerge: 4 },
-      { area: "التواصل الوظيفي", do_pass: 9, do_emerge: 1, home_pass: 6, home_emerge: 6, school_pass: 8, school_emerge: 4 },
-      { area: "السلوك البينشخصي", do_pass: 12, do_emerge: 0, home_pass: 7, home_emerge: 3, school_pass: 7, school_emerge: 3 },
+      { area: "المهارات المهنية", do_pass: 9, do_emerge: 3, home_pass: 7, home_emerge: 3, school_pass: 8, school_emerge: 4 },
+      { area: "السلوكيات المهنية", do_pass: 11, do_emerge: 1, home_pass: 7, home_emerge: 5, school_pass: 9, school_emerge: 3 },
+      { area: "الأداء الوظيفي المستقل", do_pass: 8, do_emerge: 2, home_pass: 2, home_emerge: 7, school_pass: 8, school_emerge: 3 },
+      { area: "مهارات الترفيه", do_pass: 7, do_emerge: 3, home_pass: 5, home_emerge: 6, school_pass: 7, school_emerge: 4 },
+      { area: "التواصل الوظيفي", do_pass: 8, do_emerge: 2, home_pass: 7, home_emerge: 5, school_pass: 9, school_emerge: 3 },
+      { area: "السلوك البينشخصي", do_pass: 11, do_emerge: 1, home_pass: 6, home_emerge: 4, school_pass: 6, school_emerge: 4 },
     ] };
     const p = computeTtapPatterns(real);
     expect(p).toHaveLength(6);
@@ -87,7 +87,7 @@ describe("TTAP area names as written by the model", () => {
   });
 });
 
-import { himamReading, JOURNEY_PHRASES } from "@/lib/goal-journey";
+import { himamReading, JOURNEY_PHRASES, isIsolatedMastery } from "@/lib/goal-journey";
 describe("goal journey and HIMAM reading", () => {
   it("activates previous-plan criteria only when attached and phrases categories positively", () => {
     const cfg = defaultReviewConfig();
@@ -100,10 +100,11 @@ describe("goal journey and HIMAM reading", () => {
     const item = (ref: string, category: "تكرار بلا معالجة" | "امتداد سليم", iso = false) => ({ ref, previous_goal: "x", progress_in_plaafp: "", assessment_evidence: "", current_refs: ["هـ1"], category, isolated_mastery: iso, recommendation: "ربط هـ1 في نشاط" });
     const cfg = defaultReviewConfig();
     cfg.sources.previous_plan = "attached";
-    const r = toReport({ ...emptyModelOutput(), goal_journey: { previous_promise: "", promise_in_life: "", items: [item("ق1", "تكرار بلا معالجة", true), item("ق2", "تكرار بلا معالجة"), item("ق3", "امتداد سليم")] } }, cfg);
+    const r = toReport({ ...emptyModelOutput(), goal_journey: { previous_promise: "", promise_in_life: "", items: [item("ق1", "تكرار بلا معالجة", true), item("ق2", "تكرار بلا معالجة"), item("ق3", "امتداد سليم", true)] } }, cfg);
     const h = himamReading(r)!;
     expect(h.pattern).toBe(true);
     expect(h.isolated).toBe(1);
+    expect(isIsolatedMastery({ category: "تكرار بلا معالجة", isolated_mastery: true })).toBe(false);
     const b = buildReportBlocks(r).find((x) => x.id === "goal_journey")!;
     expect(b.lines[0]).toContain("قراءة همم");
     expect(b.table!.rows[0]![5]).toContain("ربط هـ1");
