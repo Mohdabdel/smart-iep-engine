@@ -17,6 +17,7 @@ import { Route as ApiAuditRouteImport } from './routes/api/audit'
 import { Route as ApiReviewsRouteImport } from './routes/api/reviews'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/_admin/index'
 import { Route as AuthenticatedAdminReviewsRouteImport } from './routes/_authenticated/_admin/reviews'
+import { Route as ApiHimamReviewRouteImport } from './routes/api/himam/review'
 import { Route as AuthenticatedAdminAdminSubmissionsRouteImport } from './routes/_authenticated/_admin/admin.submissions'
 import { Route as AuthenticatedAdminAdminUsersRouteImport } from './routes/_authenticated/_admin/admin.users'
 
@@ -59,6 +60,11 @@ const AuthenticatedAdminReviewsRoute =
     path: '/reviews',
     getParentRoute: () => AuthenticatedAdminRouteRoute,
   } as any)
+const ApiHimamReviewRoute = ApiHimamReviewRouteImport.update({
+  id: '/api/himam/review',
+  path: '/api/himam/review',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedAdminAdminSubmissionsRoute =
   AuthenticatedAdminAdminSubmissionsRouteImport.update({
     id: '/admin/submissions',
@@ -79,6 +85,7 @@ export interface FileRoutesByFullPath {
   '/api/audit': typeof ApiAuditRoute
   '/api/reviews': typeof ApiReviewsRoute
   '/reviews': typeof AuthenticatedAdminReviewsRoute
+  '/api/himam/review': typeof ApiHimamReviewRoute
   '/admin/submissions': typeof AuthenticatedAdminAdminSubmissionsRoute
   '/admin/users': typeof AuthenticatedAdminAdminUsersRoute
 }
@@ -89,6 +96,7 @@ export interface FileRoutesByTo {
   '/api/audit': typeof ApiAuditRoute
   '/api/reviews': typeof ApiReviewsRoute
   '/reviews': typeof AuthenticatedAdminReviewsRoute
+  '/api/himam/review': typeof ApiHimamReviewRoute
   '/admin/submissions': typeof AuthenticatedAdminAdminSubmissionsRoute
   '/admin/users': typeof AuthenticatedAdminAdminUsersRoute
 }
@@ -101,6 +109,7 @@ export interface FileRoutesById {
   '/api/audit': typeof ApiAuditRoute
   '/api/reviews': typeof ApiReviewsRoute
   '/_authenticated/_admin/reviews': typeof AuthenticatedAdminReviewsRoute
+  '/api/himam/review': typeof ApiHimamReviewRoute
   '/_authenticated/_admin/': typeof AuthenticatedAdminIndexRoute
   '/_authenticated/_admin/admin/submissions': typeof AuthenticatedAdminAdminSubmissionsRoute
   '/_authenticated/_admin/admin/users': typeof AuthenticatedAdminAdminUsersRoute
@@ -114,6 +123,7 @@ export interface FileRouteTypes {
     | '/api/audit'
     | '/api/reviews'
     | '/reviews'
+    | '/api/himam/review'
     | '/admin/submissions'
     | '/admin/users'
   fileRoutesByTo: FileRoutesByTo
@@ -124,6 +134,7 @@ export interface FileRouteTypes {
     | '/api/audit'
     | '/api/reviews'
     | '/reviews'
+    | '/api/himam/review'
     | '/admin/submissions'
     | '/admin/users'
   id:
@@ -135,6 +146,7 @@ export interface FileRouteTypes {
     | '/api/audit'
     | '/api/reviews'
     | '/_authenticated/_admin/reviews'
+    | '/api/himam/review'
     | '/_authenticated/_admin/'
     | '/_authenticated/_admin/admin/submissions'
     | '/_authenticated/_admin/admin/users'
@@ -145,6 +157,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ApiAuditRoute: typeof ApiAuditRoute
   ApiReviewsRoute: typeof ApiReviewsRoute
+  ApiHimamReviewRoute: typeof ApiHimamReviewRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -205,6 +218,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminReviewsRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
+    '/api/himam/review': {
+      id: '/api/himam/review'
+      path: '/api/himam/review'
+      fullPath: '/api/himam/review'
+      preLoaderRoute: typeof ApiHimamReviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/_admin/admin/submissions': {
       id: '/_authenticated/_admin/admin/submissions'
       path: '/admin/submissions'
@@ -261,6 +281,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ApiAuditRoute: ApiAuditRoute,
   ApiReviewsRoute: ApiReviewsRoute,
+  ApiHimamReviewRoute: ApiHimamReviewRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
