@@ -56,7 +56,7 @@ import {
 } from "@/lib/review-store";
 import {
   DEFAULT_REPORT_SECTIONS,
-  REPORT_SECTION_OPTIONS,
+  reportSectionOptionsFor,
   buildReportBlocks,
   exportDocx,
   exportJson,
@@ -85,6 +85,7 @@ type Stage = "idle" | "configuring" | "parsing" | "auditing";
 type FileInfo = { name: string; textLength: number };
 
 const SAVED_REPORT_KEY = "iep-audit:last-report";
+const defaultSupervisoryConfig = (): ReviewConfig => ({ ...defaultReviewConfig(), review_type: "supervisory" });
 type SavedReport = { result: AuditResult; fileInfo: FileInfo | null; reportSections: ReportSections; caseId?: string | null };
 
 /** يبني التقرير من الأجزاء المكتملة ويطبق قواعد المراجع مرة واحدة */
@@ -139,7 +140,7 @@ function Home() {
   const [error, setError] = useState<string | null>(null);
   const [planFile, setPlanFile] = useState<File | null>(null);
   const [extraFiles, setExtraFiles] = useState<Partial<Record<EvidenceSourceId, File>>>({});
-  const [config, setConfig] = useState<ReviewConfig>(defaultReviewConfig);
+  const [config, setConfig] = useState<ReviewConfig>(defaultSupervisoryConfig);
   const [fileInfo, setFileInfo] = useState<FileInfo | null>(null);
   const [result, setResult] = useState<AuditResult | null>(null);
   const [restored, setRestored] = useState(false);
@@ -376,7 +377,7 @@ function Home() {
     setEditing(false);
     setPlanFile(null);
     setExtraFiles({});
-    setConfig(defaultReviewConfig());
+    setConfig(defaultSupervisoryConfig());
     setStage("idle");
     setReportSections(DEFAULT_REPORT_SECTIONS);
     try {
@@ -560,7 +561,7 @@ function Home() {
               <div className="rounded-xl border border-primary/40 bg-primary/5 p-4 print:hidden">
                 <p className="mb-3 text-sm font-semibold">حدد الأقسام التي تريد تضمينها في الطباعة والتصدير (مستقل عن نطاق المراجعة):</p>
                 <div className="flex flex-wrap gap-2">
-                  {REPORT_SECTION_OPTIONS.map(({ id, label }) => (
+                  {reportSectionOptionsFor(result.report.review_config.review_type).map(({ id, label }) => (
                     <label
                       key={id}
                       className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${reportSections[id] ? "border-primary bg-primary/10 font-medium text-primary" : "border-input bg-background"}`}
@@ -635,27 +636,10 @@ function ScopeConfigurator(props: {
         </button>
       </div>
 
-      <div className="space-y-2 rounded-2xl border border-border bg-card p-5">
+      <div className="space-y-2 rounded-2xl border border-primary/30 bg-primary/5 p-5">
         <h3 className="font-semibold">1. نوع المراجعة</h3>
-        <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
-          {REVIEW_TYPES.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                setConfig({
-                  ...config,
-                  review_type: t.id,
-                  ...(t.id === "compare_previous" ? { sources: { ...config.sources, previous_plan: "attached" } } : {}),
-                })
-              }
-              className={`rounded-xl border p-3 text-right text-sm font-medium transition-colors ${config.review_type === t.id ? "border-primary bg-primary/5 text-primary" : "border-border hover:bg-muted"}`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <div className="rounded-xl border border-primary bg-background p-3 text-sm font-semibold text-primary">المراجعة الإشرافية النوعية</div>
+        <p className="text-xs text-muted-foreground">الأنواع الأخرى باقية في النظام لكنها مخفية عن المسار الأساسي لتقليل التشتت.</p>
       </div>
 
       <div className="space-y-3 rounded-2xl border border-border bg-card p-5">
