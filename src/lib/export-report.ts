@@ -166,6 +166,7 @@ function buildSupervisoryCompactBlocks(report: IepAuditReport, sections: ReportS
     title: "مراجعة الأهداف والتعديلات",
     lines: [
       "ملخص المراجعة:",
+      gc.statement,
       `تمت مراجعة ${gc.reviewed} هدفاً: ${gc.sound} سليمة، ${gc.needs} تحتاج تعديلاً، ${gc.unclear} تعذر الحكم عليها.`,
       needSummary,
       report.goal_review.recurring_patterns.length ? `أهم أنماط التحسين المتكررة: ${report.goal_review.recurring_patterns.join("؛ ")}` : "",
@@ -212,7 +213,8 @@ function buildSupervisoryCompactBlocks(report: IepAuditReport, sections: ReportS
     lines: [
       decisionNotIssued(report) ? "لم يصدر القرار — المرحلة الأخيرة من المراجعة لم تكتمل." : `قرار المراجعة: ${report.review_decision}`,
       `مستوى الأداء الحالي: ${pa.judgment} — الترابط الوظيفي: ${wp.judgment}.`,
-      gc.reviewed ? `الأهداف: ${gc.reviewed} مراجعة؛ ${gc.sound} سليمة، ${gc.needs} تحتاج تعديلاً، ${gc.unclear} تعذر الحكم عليها.` : "",
+      gc.reviewed ? `تمت مراجعة ${gc.reviewed} هدفاً: ${gc.sound} سليمة، ${gc.needs} تحتاج تعديلاً، ${gc.unclear} تعذر الحكم عليها.` : "",
+      wp.functional_clusters.length ? `المسارات الوظيفية المكتشفة: ${wp.functional_clusters.length}.` : "",
       report.transition_coverage.length ? `الانتقال: مغطى كلياً ${ts.covered}، جزئياً ${ts.partial}، غير مغطى ${ts.uncovered}. ${ts.label}` : "",
       report.critical_gates.length ? `البوابات الحرجة: ${report.critical_gates.length}. ${report.critical_gates.map((g) => g.description).join("؛ ")}` : "",
       report.top_priorities.length ? "أهم الأولويات:" : "",
