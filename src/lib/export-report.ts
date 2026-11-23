@@ -59,13 +59,13 @@ export const DEFAULT_REPORT_SECTIONS: ReportSections = Object.fromEntries(
 
 const SUPERVISORY_COMPACT_SECTION_OPTIONS: readonly { id: ReportSectionId; label: string }[] = [
   { id: "summary", label: "بيانات ونطاق المراجعة" },
-  { id: "decision_brief", label: "الموجز والقرار" },
-  { id: "plaafp_assessment", label: "مستوى الأداء والاحتياجات" },
-  { id: "goal_review", label: "مراجعة الأهداف والتعديلات" },
   { id: "whole_plan", label: "رؤية الخطة والترابط الوظيفي" },
+  { id: "plaafp_assessment", label: "مستوى الأداء الحالي" },
+  { id: "goal_review", label: "مراجعة الأهداف والتعديلات" },
   { id: "transition_improvements", label: "الانتقال والمواقف الوظيفية" },
+  { id: "decision_brief", label: "الموجز والقرار وأهم الأولويات" },
   { id: "recommendations", label: "التوصيات والإجراء التالي" },
-];
+]
 
 export function reportSectionOptionsFor(reviewType?: string) {
   return reviewType === "supervisory" ? SUPERVISORY_COMPACT_SECTION_OPTIONS : REPORT_SECTION_OPTIONS;
@@ -105,6 +105,7 @@ function buildSupervisoryCompactBlocks(report: IepAuditReport, sections: ReportS
     if ((sections[b.id] ?? true) && (b.lines.some((l) => l.trim()) || (b.table && b.table.rows.length))) blocks.push(b);
   };
 
+  // 1. بيانات ونطاق المراجعة
   const availableSources = EVIDENCE_SOURCES
     .filter((s) => sourceState(report.review_config, s.id) !== "unavailable")
     .map((s) => s.label);
@@ -118,31 +119,41 @@ function buildSupervisoryCompactBlocks(report: IepAuditReport, sections: ReportS
     ],
   });
 
-  const decisionLines = [
-    decisionNotIssued(report) ? "لم يصدر القرار — المرحلة الأخيرة من المراجعة لم تكتمل." : `قرار المراجعة: ${report.review_decision}`,
-    gc.reviewed ? `الأهداف: تمت مراجعة ${gc.reviewed} هدفاً؛ ${gc.sound} سليمة، ${gc.needs} تحتاج تعديلاً، ${gc.unclear} تعذر الحكم عليها.` : "",
-    `مستوى الأداء الحالي: ${pa.judgment}.`,
-    `الترابط الوظيفي للخطة: ${report.whole_plan.judgment} — المسارات الوظيفية المكتشفة: ${report.whole_plan.functional_clusters.length}.`,
-    report.transition_coverage.length ? `تغطية الانتقال: مغطى كلياً ${ts.covered}، جزئياً ${ts.partial}، غير مغطى ${ts.uncovered}، غير قابل للتحقق ${ts.unverifiable}، لا ينطبق ${ts.na}. ${ts.label}` : "",
-    report.critical_gates.length ? `بوابات حرجة: ${report.critical_gates.length}. ${report.critical_gates.map((g) => g.description).join("؛ ")}` : "",
-    ...report.top_priorities.slice(0, 3).map((t, i) => `الأولوية ${i + 1}: ${arabicSectionRefs(t)}`),
-  ];
-  push({ id: "decision_brief", title: "الموجز والقرار", lines: decisionLines });
-
+  // 2. رؤية الخطة والترابط الوظيفي
+  const wp = report.whole_plan;
   push({
-    id: "plaafp_assessment",
-    title: "مستوى الأداء والاحتياجات",
+    id: "whole_plan",
+    title: "رؤية الخطة والترابط الوظيفي",
     lines: [
-      pa.strengths_present.length ? "الإيجابيات:" : "",
-      ...pa.strengths_present.slice(0, 3).map((t) => `• ${t}`),
-      pa.needs_improvement.length ? "ما يحتاج تحسيناً:" : "",
-      ...pa.needs_improvement.slice(0, 3).map((t) => `• ${t}`),
-      ...pa.constrained_judgments.slice(0, 2).map((t) => `قيد على الحكم: ${t}`),
-      pa.improvement_opportunities.length ? `أولوية تنفيذية: ${pa.improvement_opportunities[0]}` : "",
-      "التحليل التفصيلي لمستوى الأداء وأسئلة التحقق محفوظة ⟦أ1⟧.",
+      `الحكم النوعي على الترابط: ${wp.judgment}.`,
+      wp.governing_question_answer,
+      wp.functional_clusters.length ? `المسارات/الأدوار الوظيفية المكتشفة: ${wp.functional_clusters.map((x) => x.role).join("؛ ")}.` : "",
+      wp.within_domain_coherence ? `ترابط الأهداف داخل المجالات: ${wp.within_domain_coherence}` : "",
+      wp.cross_domain_integration ? `التكامل بين المجالات: ${wp.cross_domain_integration}` : "",
+      `المواقف المستثمرة فعلياً: ${fc.invested.length} — الفرص الوظيفية المحتملة: ${fc.potential.length}.`,
+      report.daily_routines.comment ? `استثمار الروتين: ${report.daily_routines.comment}` : "",
+      "تفاصيل المسارات والمواقف والروتين محفوظة ⟦ر1⟧ ⟦و1⟧.",
     ],
   });
 
+  // 3. مستوى الأداء الحالي
+  push({
+    id: "plaafp_assessment",
+    title: "مستوى الأداء الحالي",
+    lines: [
+      `الحكم: ${pa.judgment}.`,
+      pa.strengths_present.length ? "الإيجابيات:" : "",
+      ...pa.strengths_present.map((t) => `• ${t}`),
+      pa.needs_improvement.length ? "ما يحتاج تحسيناً:" : "",
+      ...pa.needs_improvement.map((t) => `• ${t}`),
+      ...pa.constrained_judgments.map((t) => `قيد على الحكم: ${t}`),
+      pa.improvement_opportunities.length ? "أهم فرص التحسين التنفيذية:" : "",
+      ...pa.improvement_opportunities.map((t, i) => `${i + 1}. ${t}`),
+      "التحليل التفصيلي وأسئلة التحقق محفوظة ⟦أ1⟧.",
+    ],
+  });
+
+  // 4. مراجعة الأهداف والتعديلات
   const needs = report.needs_coverage;
   const needCounts = new Map<string, number>();
   for (const n of needs) needCounts.set(n.coverage_status, (needCounts.get(n.coverage_status) ?? 0) + 1);
@@ -154,40 +165,62 @@ function buildSupervisoryCompactBlocks(report: IepAuditReport, sections: ReportS
     id: "goal_review",
     title: "مراجعة الأهداف والتعديلات",
     lines: [
+      "ملخص المراجعة:",
+      `تمت مراجعة ${gc.reviewed} هدفاً: ${gc.sound} سليمة، ${gc.needs} تحتاج تعديلاً، ${gc.unclear} تعذر الحكم عليها.`,
       needSummary,
-      report.goal_review.recurring_patterns.length ? `أهم أنماط التحسين: ${report.goal_review.recurring_patterns.join("؛ ")}` : "",
+      report.goal_review.recurring_patterns.length ? `أهم أنماط التحسين المتكررة: ${report.goal_review.recurring_patterns.join("؛ ")}` : "",
       gc.unclear ? `تنبيه: تعذر الحكم على ${gc.unclear} هدف/أهداف؛ لا تُعامل كأهداف سليمة أو غير مستوفاة.` : "",
-      "تفاصيل مطابقة الاحتياجات وجميع أحكام الأهداف وتحليل SMART محفوظة ⟦ح1⟧ ⟦هـ1⟧ ⟦هـ2⟧.",
+      "يعرض الجدول أدناه جميع التعديلات المقبولة في المراجعة. تفاصيل أحكام جميع الأهداف وتحليل SMART محفوظة ⟦هـ1⟧ ⟦هـ2⟧.",
     ],
-    table: revs.length ? { head: ["الهدف الأصلي", "التعديل المقترح"], rows: revs.map((r) => [r.original_goal, r.revised_goal]) } : undefined,
+    table: revs.length
+      ? {
+          // في العرض العربي RTL يظهر «الهدف الأصلي» في العمود الأيمن و«التعديل المقترح» في الأيسر.
+          head: ["الهدف الأصلي", "التعديل المقترح"],
+          rows: revs.map((r) => [r.original_goal, r.revised_goal]),
+        }
+      : undefined,
   });
 
-  const wp = report.whole_plan;
-  push({
-    id: "whole_plan",
-    title: "رؤية الخطة والترابط الوظيفي",
-    lines: [
-      `الحكم النوعي: ${wp.judgment}.`,
-      wp.governing_question_answer,
-      wp.functional_clusters.length ? `المسارات/الأدوار الوظيفية: ${wp.functional_clusters.map((c) => c.role).join("؛ ")}.` : "",
-      `المواقف المستثمرة فعلياً: ${fc.invested.length} — الفرص الوظيفية المحتملة: ${fc.potential.length}.`,
-      report.daily_routines.comment ? `استثمار الروتين: ${report.daily_routines.comment}` : "",
-      "تفاصيل المسارات والمواقف والروتين محفوظة ⟦ر1⟧ ⟦و1⟧.",
-    ],
-  });
-
-  const transitionNeeds = report.transition_coverage.filter((x) => x.status === "مغطى جزئياً" || x.status === "غير مغطى");
+  // 5. الانتقال والمواقف الوظيفية
+  const covered = report.transition_coverage.filter((x) => x.status === "مغطى");
+  const partial = report.transition_coverage.filter((x) => x.status === "مغطى جزئياً");
+  const uncovered = report.transition_coverage.filter((x) => x.status === "غير مغطى");
+  const unverifiable = report.transition_coverage.filter((x) => x.status === "غير قابل للتحقق");
+  const na = report.transition_coverage.filter((x) => x.status === "لا ينطبق");
   push({
     id: "transition_improvements",
     title: "الانتقال والمواقف الوظيفية",
     lines: [
-      report.transition_coverage.length ? `الخلاصة: ${ts.label}` : "",
-      ...transitionNeeds.map((x) => `• ${x.concept}: ${x.status}${x.improvement ? ` — ${x.improvement}` : ""}`),
-      "عدم تغطية مفهوم انتقالي لا يعني تلقائياً ضرورة إنشاء هدف مستقل له.",
+      report.transition_coverage.length ? `خلاصة التغطية: مغطى كلياً ${covered.length}، مغطى جزئياً ${partial.length}، غير مغطى ${uncovered.length}، غير قابل للتحقق ${unverifiable.length}، لا ينطبق ${na.length}.` : "",
+      covered.length ? `مغطى كلياً: ${covered.map((x) => x.concept).join("، ")}.` : "لا توجد مفاهيم مصنفة مغطاة كلياً.",
+      partial.length ? "مغطى جزئياً:" : "",
+      ...partial.map((x) => `• ${x.concept}${x.improvement ? `: ${x.improvement}` : ""}`),
+      uncovered.length ? "غير مغطى:" : "لا توجد مفاهيم مصنفة غير مغطاة.",
+      ...uncovered.map((x) => `• ${x.concept}${x.improvement ? `: ${x.improvement}` : ""}`),
+      unverifiable.length ? `غير قابل للتحقق: ${unverifiable.map((x) => x.concept).join("، ")}.` : "",
+      na.length ? `لا ينطبق: ${na.map((x) => x.concept).join("، ")}.` : "",
+      `المواقف المستثمرة فعلياً: ${fc.invested.length} — الفرص الوظيفية المحتملة: ${fc.potential.length}.`,
+      "التغطية الانتقالية وصف للخطة وليست درجة اعتماد، وعدم تغطية مفهوم لا يعني تلقائياً ضرورة إنشاء هدف مستقل له.",
       "مصفوفة الانتقال الكاملة والأهداف الداعمة محفوظة ⟦ت1⟧.",
     ],
   });
 
+  // 6. الموجز والقرار وأهم الأولويات
+  push({
+    id: "decision_brief",
+    title: "الموجز والقرار وأهم الأولويات",
+    lines: [
+      decisionNotIssued(report) ? "لم يصدر القرار — المرحلة الأخيرة من المراجعة لم تكتمل." : `قرار المراجعة: ${report.review_decision}`,
+      `مستوى الأداء الحالي: ${pa.judgment} — الترابط الوظيفي: ${wp.judgment}.`,
+      gc.reviewed ? `الأهداف: ${gc.reviewed} مراجعة؛ ${gc.sound} سليمة، ${gc.needs} تحتاج تعديلاً، ${gc.unclear} تعذر الحكم عليها.` : "",
+      report.transition_coverage.length ? `الانتقال: مغطى كلياً ${ts.covered}، جزئياً ${ts.partial}، غير مغطى ${ts.uncovered}. ${ts.label}` : "",
+      report.critical_gates.length ? `البوابات الحرجة: ${report.critical_gates.length}. ${report.critical_gates.map((g) => g.description).join("؛ ")}` : "",
+      report.top_priorities.length ? "أهم الأولويات:" : "",
+      ...report.top_priorities.slice(0, 3).map((t, i) => `${i + 1}. ${arabicSectionRefs(t)}`),
+    ],
+  });
+
+  // 7. التوصيات والإجراء التالي
   push({
     id: "recommendations",
     title: "التوصيات والإجراء التالي",
@@ -199,10 +232,6 @@ function buildSupervisoryCompactBlocks(report: IepAuditReport, sections: ReportS
   return blocks;
 }
 
-/**
- * المصدر الموحد لمحتوى التقرير — تعرضه الواجهة والطباعة وWord، وتُصفّى به JSON.
- * الأقسام الفارغة (غير المنفذة في نطاق المراجعة) لا تُنتج كتلاً.
- */
 export function buildReportBlocks(report: IepAuditReport, sections: ReportSections = DEFAULT_REPORT_SECTIONS): ReportBlock[] {
   if (report.review_config.review_type === "supervisory") return buildSupervisoryCompactBlocks(report, sections);
   const cfg = report.review_config;
