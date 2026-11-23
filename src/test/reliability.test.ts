@@ -94,11 +94,11 @@ describe("compact supervisory report", () => {
     const options = reportSectionOptionsFor("supervisory");
     expect(options.map((o) => o.id)).toEqual([
       "summary",
-      "decision_brief",
+      "whole_plan",
       "plaafp_assessment",
       "goal_review",
-      "whole_plan",
       "transition_improvements",
+      "decision_brief",
       "recommendations",
     ]);
     const blocks = buildReportBlocks(report);
