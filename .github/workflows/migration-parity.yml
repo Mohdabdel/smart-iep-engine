@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - migration/hostinger-parity
+      - feat/supervisory-compact-report
   workflow_dispatch:
 permissions:
   contents: read
