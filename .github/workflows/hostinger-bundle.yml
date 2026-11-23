@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - migration/hostinger-parity
+      - feat/supervisory-compact-report
 permissions:
   contents: read
 jobs:
