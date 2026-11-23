@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { defaultReviewConfig } from "@/lib/criteria-registry";
 import { partsForReviewType, toReport, emptyModelOutput } from "@/lib/iep-schema";
 import { applyReviewerParity } from "@/lib/iep-parity";
-import { DEFAULT_REPORT_SECTIONS, REPORT_SECTION_OPTIONS, buildReportBlocks, selectJson } from "@/lib/export-report";
+import { DEFAULT_REPORT_SECTIONS, REPORT_SECTION_OPTIONS, buildReportBlocks, reportSectionOptionsFor, selectJson } from "@/lib/export-report";
 import { RetriableError, caseStatusFor, initialParts, mergeParts, runParts, type PartState } from "@/lib/review-orchestrator";
 
 const buckets = partsForReviewType("full");
@@ -84,5 +84,26 @@ describe("TEST-R5/R9 regression: sections & report", () => {
     const off = Object.fromEntries(REPORT_SECTION_OPTIONS.map((o) => [o.id, false])) as typeof DEFAULT_REPORT_SECTIONS;
     expect(Object.keys(selectJson(r, off))).toEqual(["schema_version"]);
     expect(buildReportBlocks(r, off)).toHaveLength(0);
+  });
+});
+
+describe("compact supervisory report", () => {
+  it("exposes one compact supervisory section set while preserving the full result", () => {
+    const cfg = { ...defaultReviewConfig(), review_type: "supervisory" as const };
+    const report = toReport(emptyModelOutput(), cfg);
+    const options = reportSectionOptionsFor("supervisory");
+    expect(options.map((o) => o.id)).toEqual([
+      "summary",
+      "decision_brief",
+      "plaafp_assessment",
+      "goal_review",
+      "whole_plan",
+      "transition_improvements",
+      "recommendations",
+    ]);
+    const blocks = buildReportBlocks(report);
+    expect(blocks.every((b) => options.some((o) => o.id === b.id))).toBe(true);
+    expect(report.goal_review).toBeDefined();
+    expect(report.transition_coverage).toBeDefined();
   });
 });
